@@ -7,9 +7,10 @@ import ChatWidget from "../components/ChatWidget";
 import TimelineTab from "../components/TimeLineTab";
 import logo from "../assets/logo.png";
 import navIcon from "../assets/nav-icon.svg";
-import defaultHeaderImage from "../assets/header1.jpg";
 import {
   addMedia,
+  addMediaComment,
+  addMediaCommentReply,
   addPlanItem,
   addTimelinePost,
   deleteMedia,
@@ -18,7 +19,13 @@ import {
   getGroupMeta,
   getMyRole,
   getPlan,
+  getReelComments,
+  getReels,
   getTimeline,
+  uploadReelVideo,
+  createReel,
+  toggleReelLike,
+  addReelComment,
   readMedia,
   updateGroupName,
   updatePlanItem,
@@ -36,6 +43,7 @@ import {
   setSubItems,
   setMenuItems,
   addPlanComment,
+  addPlanCommentReply,
   deletePlanComment,
   pushPlanExtrasToRemote,
   syncPlanExtrasFromRemote,
@@ -47,7 +55,7 @@ import { FacilityNotesBox } from "../features/group/components/FacilityNotesBox"
 import { EventNotesBox } from "../features/group/components/EventNotesBox";
 import { readGroupHeaderImage } from "../lib/groupHeaderImage";
 
-type TabKey = "timeline" | "plan" | "media";
+type TabKey = "timeline" | "plan" | "media" | "reels";
 
 const ABOUT_OPTIONS = [
   { value: "", label: "Select type" },
@@ -61,28 +69,70 @@ const ABOUT_OPTIONS = [
 
 const TARGET_GROUP_NAME = "Queensland Toli to sydney Trip 2026";
 
-function TabPill({
+function TabButton({
   active,
-  children,
+  label,
+  icon,
   onClick,
 }: {
   active: boolean;
-  children: ReactNode;
+  label: string;
+  icon: ReactNode;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-current={active ? "page" : undefined}
       className={[
-        "px-3 sm:px-4 py-2 rounded-xl sm:rounded-2xl border text-xs sm:text-sm font-semibold transition",
+        "flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-2xl border text-[11px] sm:text-xs font-semibold transition w-full",
         active
-          ? "bg-yellow-200 border-yellow-300 text-gray-900 shadow-sm"
-          : "bg-white border-gray-200 text-gray-900 hover:bg-gray-50 shadow-sm",
+          ? "bg-blue-600 border-blue-600 text-white shadow-soft"
+          : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50",
       ].join(" ")}
     >
-      {children}
+      <span className="text-lg sm:text-xl">{icon}</span>
+      <span>{label}</span>
     </button>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="4" width="18" height="17" rx="2" />
+      <path d="M8 2v4M16 2v4M3 10h18" />
+    </svg>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 10.5L12 3l9 7.5" />
+      <path d="M5 10v10h14V10" />
+    </svg>
+  );
+}
+
+function MediaIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="8" cy="10" r="2" />
+      <path d="M21 17l-6-6-4 4-2-2-4 4" />
+    </svg>
+  );
+}
+
+function ReelsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 8h18M8 4l2 4M14 4l2 4" />
+      <path d="M10 12l6 4-6 4z" />
+    </svg>
   );
 }
 
@@ -301,6 +351,29 @@ export function GroupHome({
   const [loadingGroup, setLoadingGroup] = useState(true);
   const [groupError, setGroupError] = useState<string | null>(null);
 
+  const [reels, setReels] = useState<
+    Array<{
+      id: string;
+      videoUrl: string;
+      caption?: string | null;
+      likeCount: number;
+      commentCount: number;
+      viewerLiked?: boolean;
+    }>
+  >([]);
+  const [reelComments, setReelComments] = useState<
+    Record<string, Array<{ id: string; userId: string; text: string }>>
+  >({});
+  const [reelCommentDraft, setReelCommentDraft] = useState<
+    Record<string, string>
+  >({});
+  const [reelBusy, setReelBusy] = useState(false);
+  const [reelError, setReelError] = useState<string | null>(null);
+  const [reelPage, setReelPage] = useState(0);
+  const [reelHasMore, setReelHasMore] = useState(true);
+  const reelsInputRef = useRef<HTMLInputElement | null>(null);
+  const reelsSentinelRef = useRef<HTMLDivElement | null>(null);
+
   const session = getSession();
   const sessionUserId = session?.userId ?? null;
   const me = session ? { userId: session.userId, name: session.name } : null;
@@ -312,11 +385,109 @@ export function GroupHome({
       const raw = localStorage.getItem(UI_KEY);
       if (!raw) return "timeline";
       const parsed = JSON.parse(raw) as { tab?: TabKey };
-      return parsed.tab ?? "timeline";
+      const next = parsed.tab ?? "timeline";
+      return ["timeline", "plan", "media", "reels"].includes(next)
+        ? (next as TabKey)
+        : "timeline";
     } catch {
       return "timeline";
     }
   });
+
+  useEffect(() => {
+    // load reels when tab opens
+    if (tab !== "reels") return;
+    let mounted = true;
+    void (async () => {
+      try {
+        setReelError(null);
+        setReelBusy(true);
+        setReelPage(0);
+        const res = await getReels(groupId, sessionUserId, 0);
+        if (!mounted) return;
+        setReels(res.items);
+        setReelHasMore(res.hasMore);
+      } catch (err) {
+        const msg =
+          (err as { message?: string })?.message ?? "Could not load reels.";
+        if (mounted) setReelError(msg);
+      } finally {
+        if (mounted) setReelBusy(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [tab, groupId, sessionUserId]);
+
+  useEffect(() => {
+    if (tab !== "reels") return;
+    if (!reelsSentinelRef.current) return;
+    const node = reelsSentinelRef.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.some((e) => e.isIntersecting);
+        if (hit && !reelBusy && reelHasMore) {
+          void (async () => {
+            try {
+              setReelBusy(true);
+              const nextPage = reelPage + 1;
+              const res = await getReels(groupId, sessionUserId, nextPage);
+              setReels((prev) => [...prev, ...res.items]);
+              setReelHasMore(res.hasMore);
+              setReelPage(nextPage);
+            } catch (err) {
+              const msg =
+                (err as { message?: string })?.message ??
+                "Could not load more reels.";
+              setReelError(msg);
+            } finally {
+              setReelBusy(false);
+            }
+          })();
+        }
+      },
+      { threshold: 0.2 },
+    );
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, [tab, groupId, sessionUserId, reelBusy, reelHasMore, reelPage]);
+
+  function setTabAndScroll(next: TabKey) {
+    setTab(next);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  function handleAddReel() {
+    reelsInputRef.current?.click();
+  }
+
+  async function handleReelFileChange(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!sessionUserId) {
+      setReelError("Login required to upload.");
+      return;
+    }
+    try {
+      setReelError(null);
+      setReelBusy(true);
+      const videoUrl = await uploadReelVideo(groupId, file);
+      const created = await createReel(groupId, videoUrl, sessionUserId);
+      setReels((prev) => [created, ...prev]);
+    } catch (err) {
+      const msg =
+        (err as { message?: string })?.message ?? "Upload failed.";
+      setReelError(msg);
+    } finally {
+      setReelBusy(false);
+      e.target.value = "";
+    }
+  }
 
   const [activeDay, setActiveDay] = useState<PlanDayKey>(() => {
     try {
@@ -373,11 +544,12 @@ export function GroupHome({
   const [mediaVersion, setMediaVersion] = useState(0);
   void mediaVersion;
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
   const templateInputRef = useRef<HTMLInputElement | null>(null);
   const [customHeaderBg, setCustomHeaderBg] = useState<string | null>(() =>
     readGroupHeaderImage(groupId),
   );
-  const headerBg = customHeaderBg ?? defaultHeaderImage;
+  const headerBg = null;
   const autoRenamedRef = useRef(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -436,6 +608,18 @@ export function GroupHome({
       dataUrl: string;
       visibility: "group" | "private" | "shared";
       createdBy: { userId: string; name: string };
+      comments?: Array<{
+        id: string;
+        text: string;
+        createdAt: number;
+        createdBy: { userId: string; name: string };
+        replies?: Array<{
+          id: string;
+          text: string;
+          createdAt: number;
+          createdBy: { userId: string; name: string };
+        }>;
+      }>;
     }[]
   >([]);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -443,6 +627,19 @@ export function GroupHome({
     "group" | "private" | "shared"
   >("group");
   const [showForm, setShowForm] = useState(false);
+  const [showPlanSettings, setShowPlanSettings] = useState(false);
+  const planSettingsRef = useRef<HTMLDivElement | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [navPinned, setNavPinned] = useState(false);
+  const [mediaCommentDrafts, setMediaCommentDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [mediaReplyDrafts, setMediaReplyDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [mediaReplyOpen, setMediaReplyOpen] = useState<
+    Record<string, boolean>
+  >({});
   const [exploreTypeBySub, setExploreTypeBySub] = useState<
     Record<string, (typeof EXPLORE_OPTIONS)[number]["value"]>
   >({});
@@ -454,6 +651,12 @@ export function GroupHome({
   >({});
   const [planCommentImageDrafts, setPlanCommentImageDrafts] = useState<
     Record<string, string | null>
+  >({});
+  const [planReplyDrafts, setPlanReplyDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [planReplyOpen, setPlanReplyOpen] = useState<
+    Record<string, boolean>
   >({});
   const [openPlanMenuId, setOpenPlanMenuId] = useState<string | null>(null);
   const [extrasVersion, setExtrasVersion] = useState(0);
@@ -572,6 +775,49 @@ export function GroupHome({
     );
     if (next) handleActiveDayChange(next.key);
   }, [planAll, activeDay]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const el = headerRef.current;
+    if (!el) return;
+    const update = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      document.documentElement.style.setProperty(
+        "--journey-header-h",
+        `${h}px`,
+      );
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onScroll = () => {
+      const h = headerRef.current?.getBoundingClientRect().height ?? 120;
+      setNavPinned(window.scrollY > h + 20);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!showPlanSettings) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (planSettingsRef.current?.contains(target)) return;
+      setShowPlanSettings(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [showPlanSettings]);
 
   useEffect(() => {
     let mounted = true;
@@ -1109,9 +1355,9 @@ export function GroupHome({
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-orange-50">
       {/* Header */}
       <div
+        ref={headerRef}
         className={[
-          "journey-header sticky top-[5px] z-50 border-b border-gray-200 mx-[5px] my-[5px] overflow-hidden",
-          headerBg ? "bg-white/40" : "bg-white/90",
+          "journey-header fixed top-0 left-0 right-0 z-50 mx-[5px] mt-[5px] overflow-hidden relative bg-transparent",
         ].join(" ")}
         style={
           headerBg
@@ -1128,11 +1374,27 @@ export function GroupHome({
         )}
         <div className="journey-header-inner relative mx-auto w-full max-w-6xl px-[5px] py-[5px] flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <img
-              src={logo}
-              alt="logo"
-              className="journey-header-logo h-42 w-42 sm:h-48 sm:w-48 object-contain"
-            />
+            <button
+              type="button"
+              onClick={() => setTabAndScroll("timeline")}
+              className="rounded-xl focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
+              aria-label="Go to Home"
+              title="Home"
+            >
+            <button
+              type="button"
+              onClick={onBack}
+              className="rounded-xl focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
+              aria-label="Go to dashboard"
+              title="Dashboard"
+            >
+              <img
+                src={logo}
+                alt="logo"
+                className="journey-header-logo h-42 w-42 sm:h-48 sm:w-48 object-contain"
+              />
+            </button>
+            </button>
             <div className="min-w-0">
               <div className="journey-header-title text-sm font-extrabold text-gray-900 truncate tracking-tight">
                 Journey • {group.name}
@@ -1150,14 +1412,14 @@ export function GroupHome({
             </div>
           </div>
 
-          {/* ✅ Real profile button opens drawer */}
+          {/* ✅ Menu button opens drawer */}
           <button
             type="button"
-            className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-extrabold hover:bg-gray-50 w-full sm:w-auto"
+            className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-extrabold hover:bg-gray-50 w-full sm:w-auto flex items-center justify-center gap-2"
             onClick={() => setDrawerOpen(true)}
-            title="Profile / Group Menu"
+            title="Menu"
           >
-            👤 Profile
+            ☰ Menu
           </button>
         </div>
       </div>
@@ -1175,26 +1437,49 @@ export function GroupHome({
         onHeaderImageChange={(next) => setCustomHeaderBg(next)}
       />
 
-      {/* Tabs */}
-      <div className="mx-auto w-[95%] max-w-6xl pt-3">
-        <div className="flex flex-wrap gap-2">
-          <TabPill active={tab === "plan"} onClick={() => setTab("plan")}>
-            Plan
-          </TabPill>
-          <TabPill
-            active={tab === "timeline"}
-            onClick={() => setTab("timeline")}
-          >
-            Timeline
-          </TabPill>
-          <TabPill active={tab === "media"} onClick={() => setTab("media")}>
-            Media
-          </TabPill>
+      <div className="journey-content">
+        {/* Tabs */}
+        <div
+          className={[
+            "journey-tabbar mx-auto w-[95%] max-w-6xl pt-[5px]",
+            navPinned ? "journey-tabbar--pinned" : "journey-tabbar--below",
+          ].join(" ")}
+        >
+          <div className="rounded-3xl border border-gray-200 bg-white/90 shadow-soft p-2">
+            <div className="grid grid-cols-4 gap-2">
+              <TabButton
+                active={tab === "timeline"}
+                onClick={() => {
+                  setNavPinned(false);
+                  setTabAndScroll("timeline");
+                }}
+                label="Home"
+                icon={<HomeIcon />}
+              />
+              <TabButton
+                active={tab === "plan"}
+                onClick={() => setTabAndScroll("plan")}
+                label="Plan"
+                icon={<CalendarIcon />}
+              />
+              <TabButton
+                active={tab === "media"}
+                onClick={() => setTabAndScroll("media")}
+                label="Media"
+                icon={<MediaIcon />}
+              />
+              <TabButton
+                active={tab === "reels"}
+                onClick={() => setTabAndScroll("reels")}
+                label="Reels"
+                icon={<ReelsIcon />}
+              />
+            </div>
+          </div>
         </div>
-      </div>
 
-      <main className="mx-auto w-[95%] max-w-6xl py-6 space-y-6">
-        <div className={tab === "timeline" ? "" : "hidden"}>
+        <main className="mx-auto w-[95%] max-w-6xl py-6 space-y-6">
+        <div className={tab === "timeline" ? "-mt-2 sm:-mt-4" : "hidden"}>
           <TimelineTab groupId={groupId} />
         </div>
 
@@ -1247,7 +1532,7 @@ export function GroupHome({
                     </Button>
                   )}
                   {myRole !== "member" && (
-                    <>
+                    <div className="w-full sm:w-auto relative" ref={planSettingsRef}>
                       <input
                         ref={templateInputRef}
                         type="file"
@@ -1262,49 +1547,62 @@ export function GroupHome({
                       />
                       <Button
                         variant="ghost"
-                        onClick={downloadPlanTemplate}
-                        className="w-full sm:w-auto"
+                        onClick={() => setShowPlanSettings((v) => !v)}
+                        className="w-full sm:w-auto flex items-center justify-center gap-2"
+                        title="Plan settings"
                       >
-                        Download template
+                        <span className="text-lg">☰</span>
+                        <span className="sm:hidden">Settings</span>
                       </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => templateInputRef.current?.click()}
-                        className="w-full sm:w-auto"
-                      >
-                        Upload CSV
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={async () => {
-                          if (!planAll.length) return;
-                          try {
-                            await Promise.all(
-                              planAll.map((item) =>
-                                pushPlanExtrasToRemote(groupId, item.id),
-                              ),
-                            );
-                            setExtrasVersion((v) => v + 1);
-                            alert("Synced local plan data to cloud.");
-                          } catch (err) {
-                            const msg =
-                              (err as { message?: string })?.message ??
-                              "Sync failed.";
-                            alert(msg);
-                          }
-                        }}
-                        className="w-full sm:w-auto"
-                      >
-                        Sync local → cloud
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={importLegacyLocalData}
-                        className="w-full sm:w-auto"
-                      >
-                        Import legacy local data
-                      </Button>
-                    </>
+                      {showPlanSettings && (
+                        <div className="absolute right-0 mt-2 rounded-2xl border border-gray-200 bg-white shadow-soft p-2 space-y-2 w-full sm:w-64 z-10">
+                          <Button
+                            variant="ghost"
+                            onClick={downloadPlanTemplate}
+                            className="w-full justify-start"
+                          >
+                            Download template
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() => templateInputRef.current?.click()}
+                            className="w-full justify-start"
+                          >
+                            Upload CSV
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={async () => {
+                              if (!planAll.length) return;
+                              try {
+                                await Promise.all(
+                                  planAll.map((item) =>
+                                    pushPlanExtrasToRemote(groupId, item.id),
+                                  ),
+                                );
+                                setExtrasVersion((v) => v + 1);
+                                alert("Synced local plan data to cloud.");
+                              } catch (err) {
+                                const msg =
+                                  (err as { message?: string })?.message ??
+                                  "Sync failed.";
+                                alert(msg);
+                              }
+                            }}
+                            className="w-full justify-start"
+                          >
+                            Sync local → cloud
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={importLegacyLocalData}
+                            className="w-full justify-start"
+                          >
+                            Import legacy local data
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1872,21 +2170,98 @@ export function GroupHome({
                                         />
                                       </div>
                                     )}
-                                    {me?.name === c.by && (
+                                    {(c.replies ?? []).length > 0 && (
+                                      <div className="mt-2 space-y-1">
+                                        {c.replies!.map((r) => (
+                                          <div
+                                            key={r.id}
+                                            className="rounded-lg border border-gray-100 bg-gray-50 px-2 py-1 text-xs text-gray-700"
+                                          >
+                                            <span className="font-semibold">
+                                              {r.by}
+                                            </span>{" "}
+                                            {r.text}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <div className="mt-2 flex items-center gap-2">
                                       <button
                                         type="button"
-                                        className="mt-1 text-xs font-semibold text-red-600 hover:underline"
-                                        onClick={() => {
-                                          deletePlanComment(
-                                            groupId,
-                                            item.id,
-                                            c.id,
-                                          );
-                                          setRefresh((x) => x + 1);
-                                        }}
+                                        className="text-xs font-semibold text-blue-600 hover:underline"
+                                        onClick={() =>
+                                          setPlanReplyOpen((prev) => ({
+                                            ...prev,
+                                            [c.id]: !prev[c.id],
+                                          }))
+                                        }
                                       >
-                                        Delete
+                                        Reply
                                       </button>
+                                      {me?.name === c.by && (
+                                        <button
+                                          type="button"
+                                          className="text-xs font-semibold text-red-600 hover:underline"
+                                          onClick={() => {
+                                            deletePlanComment(
+                                              groupId,
+                                              item.id,
+                                              c.id,
+                                            );
+                                            setRefresh((x) => x + 1);
+                                          }}
+                                        >
+                                          Delete
+                                        </button>
+                                      )}
+                                    </div>
+                                    {planReplyOpen[c.id] && (
+                                      <div className="mt-2 flex items-center gap-2">
+                                        <input
+                                          value={planReplyDrafts[c.id] ?? ""}
+                                          onChange={(e) =>
+                                            setPlanReplyDrafts((prev) => ({
+                                              ...prev,
+                                              [c.id]: e.target.value,
+                                            }))
+                                          }
+                                          placeholder="Write a reply…"
+                                          className="flex-1 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                                        />
+                                        <Button
+                                          variant="primary"
+                                          disabled={
+                                            !me ||
+                                            !(planReplyDrafts[c.id] ?? "").trim()
+                                          }
+                                          onClick={() => {
+                                            if (!me) return;
+                                            const t = (
+                                              planReplyDrafts[c.id] ?? ""
+                                            ).trim();
+                                            if (!t) return;
+                                            addPlanCommentReply(
+                                              groupId,
+                                              item.id,
+                                              c.id,
+                                              me.name,
+                                              t,
+                                              me.userId,
+                                            );
+                                            setPlanReplyDrafts((prev) => ({
+                                              ...prev,
+                                              [c.id]: "",
+                                            }));
+                                            setPlanReplyOpen((prev) => ({
+                                              ...prev,
+                                              [c.id]: false,
+                                            }));
+                                            setRefresh((x) => x + 1);
+                                          }}
+                                        >
+                                          Send
+                                        </Button>
+                                      </div>
                                     )}
                                   </div>
                                 ))}
@@ -2123,43 +2498,174 @@ export function GroupHome({
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {mediaItems.map((m) => {
                 const canDelete = me?.userId === m.createdBy.userId;
+                const comments = m.comments ?? [];
                 return (
                   <div
                     key={m.id}
-                    className="relative group aspect-square rounded-3xl border border-gray-200 bg-gray-50 overflow-hidden"
+                    className="rounded-3xl border border-gray-200 bg-white overflow-hidden shadow-soft flex flex-col"
                   >
-                    <img
-                      src={m.dataUrl}
-                      alt="media"
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 text-xs text-white opacity-0 group-hover:opacity-100 transition">
-                      <div className="font-semibold truncate">
-                        {m.createdBy.name}
+                    <div className="relative aspect-square bg-gray-50">
+                      <img
+                        src={m.dataUrl}
+                        alt="media"
+                        className="h-full w-full object-cover cursor-zoom-in"
+                        loading="lazy"
+                        onClick={() => setMediaPreview(m.dataUrl)}
+                      />
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 text-xs text-white opacity-0 group-hover:opacity-100 transition">
+                        <div className="font-semibold truncate">
+                          {m.createdBy.name}
+                        </div>
+                        <div className="text-[10px] uppercase tracking-wide">
+                          {m.visibility}
+                        </div>
                       </div>
-                      <div className="text-[10px] uppercase tracking-wide">
-                        {m.visibility}
+                      <button
+                        type="button"
+                        disabled={!canDelete}
+                        onClick={async () => {
+                          if (!canDelete) return;
+                          await deleteMedia(groupId, m.id, me.userId);
+                          setMediaVersion((v) => v + 1);
+                        }}
+                        className="absolute top-2 right-2 rounded-full bg-white/90 text-gray-900 px-2 py-1 text-xs font-bold opacity-0 group-hover:opacity-100 transition disabled:opacity-40"
+                        title={
+                          canDelete ? "Delete media" : "Only owner can delete"
+                        }
+                      >
+                        Delete
+                      </button>
+                    </div>
+
+                    <div className="p-3 space-y-2">
+                      <div className="text-xs font-semibold text-gray-600">
+                        Comments
+                      </div>
+                      <div className="space-y-2 max-h-28 overflow-y-auto pr-1">
+                        {comments.length === 0 ? (
+                          <div className="text-xs text-gray-500">
+                            No comments yet.
+                          </div>
+                        ) : (
+                          comments.map((c) => (
+                            <div key={c.id} className="text-xs text-gray-700">
+                              <span className="font-semibold">
+                                {c.createdBy?.name ?? "User"}
+                              </span>{" "}
+                              {c.text}
+                              {(c.replies ?? []).length > 0 && (
+                                <div className="mt-1 space-y-1">
+                                  {c.replies!.map((r) => (
+                                    <div
+                                      key={r.id}
+                                      className="rounded-lg border border-gray-100 bg-gray-50 px-2 py-1 text-[11px] text-gray-700"
+                                    >
+                                      <span className="font-semibold">
+                                        {r.createdBy?.name ?? "User"}
+                                      </span>{" "}
+                                      {r.text}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="mt-1 flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  className="text-[11px] font-semibold text-blue-600 hover:underline"
+                                  onClick={() =>
+                                    setMediaReplyOpen((prev) => ({
+                                      ...prev,
+                                      [c.id]: !prev[c.id],
+                                    }))
+                                  }
+                                >
+                                  Reply
+                                </button>
+                              </div>
+                              {mediaReplyOpen[c.id] && (
+                                <div className="mt-1 flex items-center gap-2">
+                                  <input
+                                    value={mediaReplyDrafts[c.id] ?? ""}
+                                    onChange={(e) =>
+                                      setMediaReplyDrafts((prev) => ({
+                                        ...prev,
+                                        [c.id]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="Reply…"
+                                    className="flex-1 rounded-2xl border border-gray-200 bg-white px-2 py-1 text-[11px] outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                                  />
+                                  <Button
+                                    variant="primary"
+                                    disabled={
+                                      !me ||
+                                      !(mediaReplyDrafts[c.id] ?? "").trim()
+                                    }
+                                    onClick={async () => {
+                                      if (!me) return;
+                                      const t = (
+                                        mediaReplyDrafts[c.id] ?? ""
+                                      ).trim();
+                                      if (!t) return;
+                                      await addMediaCommentReply(
+                                        m.id,
+                                        c.id,
+                                        me,
+                                        t,
+                                      );
+                                      setMediaReplyDrafts((prev) => ({
+                                        ...prev,
+                                        [c.id]: "",
+                                      }));
+                                      setMediaReplyOpen((prev) => ({
+                                        ...prev,
+                                        [c.id]: false,
+                                      }));
+                                      setMediaVersion((v) => v + 1);
+                                    }}
+                                  >
+                                    Send
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={mediaCommentDrafts[m.id] ?? ""}
+                          onChange={(e) =>
+                            setMediaCommentDrafts((prev) => ({
+                              ...prev,
+                              [m.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Write a comment…"
+                          className="flex-1 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                        />
+                        <Button
+                          variant="primary"
+                          disabled={!me || !(mediaCommentDrafts[m.id] ?? "").trim()}
+                          onClick={async () => {
+                            if (!me) return;
+                            const t = (mediaCommentDrafts[m.id] ?? "").trim();
+                            if (!t) return;
+                            await addMediaComment(m.id, me, t);
+                            setMediaCommentDrafts((prev) => ({
+                              ...prev,
+                              [m.id]: "",
+                            }));
+                            setMediaVersion((v) => v + 1);
+                          }}
+                        >
+                          Send
+                        </Button>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      disabled={!canDelete}
-                      onClick={async () => {
-                        if (!canDelete) return;
-                        await deleteMedia(groupId, m.id, me.userId);
-                        setMediaVersion((v) => v + 1);
-                      }}
-                      className="absolute top-2 right-2 rounded-full bg-white/90 text-gray-900 px-2 py-1 text-xs font-bold opacity-0 group-hover:opacity-100 transition disabled:opacity-40"
-                      title={
-                        canDelete ? "Delete media" : "Only owner can delete"
-                      }
-                    >
-                      Delete
-                    </button>
                   </div>
                 );
               })}
@@ -2180,12 +2686,212 @@ export function GroupHome({
             )}
           </Card>
         </div>
-      </main>
 
-      <footer className="mx-auto w-[95%] max-w-6xl pb-6 text-center text-xs text-gray-600">
-        Design by Nexus Tech Group Sydney · Phone no +61430060860 · Copyright ©
-        2026
-      </footer>
+        <div className={tab === "reels" ? "" : "hidden"}>
+          <Card>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-lg font-extrabold text-gray-900 tracking-tight">
+                  Reels
+                </div>
+                <p className="mt-1 text-gray-600">
+                  Quick clips in a TikTok-style feed (local-only for now).
+                </p>
+              </div>
+              <div>
+                <input
+                  ref={reelsInputRef}
+                  type="file"
+                  accept="video/*"
+                  className="hidden"
+                  onChange={handleReelFileChange}
+                />
+                <Button variant="primary" onClick={handleAddReel}>
+                  + Create Reel
+                </Button>
+              </div>
+            </div>
+
+            {reelError && (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {reelError}
+              </div>
+            )}
+
+            {reels.length === 0 && !reelBusy && (
+              <div className="mt-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-sm text-gray-500">
+                No reels yet. Create your first clip.
+              </div>
+            )}
+
+            <div className="mt-6 h-[70vh] overflow-y-auto snap-y snap-mandatory rounded-2xl border border-gray-200 bg-black/5">
+              {reels.map((r) => (
+                <div
+                  key={r.id}
+                  className="relative snap-start h-[70vh] flex items-center justify-center bg-black"
+                >
+                  <video
+                    src={r.videoUrl}
+                    controls
+                    playsInline
+                    loop
+                    className="h-full w-full object-contain"
+                  />
+                  {r.caption && (
+                    <div className="absolute left-4 bottom-4 text-white text-sm font-semibold drop-shadow">
+                      {r.caption}
+                    </div>
+                  )}
+                  <div className="absolute right-3 bottom-4 flex flex-col items-center gap-3 text-white">
+                    <button
+                      type="button"
+                      className="h-10 w-10 rounded-full bg-white/15 backdrop-blur flex items-center justify-center text-sm font-bold"
+                      title="Like"
+                      onClick={async () => {
+                        if (!sessionUserId) return;
+                        const next = await toggleReelLike(
+                          r.id,
+                          sessionUserId,
+                        );
+                        setReels((prev) =>
+                          prev.map((x) =>
+                            x.id === r.id
+                              ? {
+                                  ...x,
+                                  viewerLiked: next,
+                                  likeCount: Math.max(
+                                    0,
+                                    x.likeCount + (next ? 1 : -1),
+                                  ),
+                                }
+                              : x,
+                          ),
+                        );
+                      }}
+                    >
+                      {r.viewerLiked ? "♥" : "♡"}
+                    </button>
+                    <div className="text-xs">{r.likeCount}</div>
+                    <button
+                      type="button"
+                      className="h-10 w-10 rounded-full bg-white/15 backdrop-blur flex items-center justify-center text-sm font-bold"
+                      title="Comment"
+                      onClick={async () => {
+                        if (reelComments[r.id]) {
+                          setReelComments((prev) => {
+                            const next = { ...prev };
+                            delete next[r.id];
+                            return next;
+                          });
+                          return;
+                        }
+                        const list = await getReelComments(r.id);
+                        setReelComments((prev) => ({
+                          ...prev,
+                          [r.id]: list.map((c) => ({
+                            id: c.id,
+                            userId: c.userId,
+                            text: c.text,
+                          })),
+                        }));
+                      }}
+                    >
+                      💬
+                    </button>
+                    <div className="text-xs">{r.commentCount}</div>
+                    <button
+                      type="button"
+                      className="h-10 w-10 rounded-full bg-white/15 backdrop-blur flex items-center justify-center text-sm font-bold"
+                      title="Share"
+                    >
+                      ↗
+                    </button>
+                  </div>
+
+                  {Array.isArray(reelComments[r.id]) && (
+                    <div className="absolute left-3 right-3 bottom-16 rounded-2xl bg-white/90 backdrop-blur p-3 text-gray-900">
+                      <div className="max-h-40 overflow-y-auto space-y-2 text-sm">
+                        {reelComments[r.id].length === 0 && (
+                          <div className="text-gray-500">No comments yet.</div>
+                        )}
+                        {reelComments[r.id].map((c) => (
+                          <div key={c.id} className="border-b border-gray-200 pb-2">
+                            <div className="text-xs text-gray-500">
+                              {c.userId.slice(0, 6)}
+                            </div>
+                            <div>{c.text}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          value={reelCommentDraft[r.id] ?? ""}
+                          onChange={(e) =>
+                            setReelCommentDraft((prev) => ({
+                              ...prev,
+                              [r.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Add a comment"
+                          className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm"
+                        />
+                        <Button
+                          variant="primary"
+                          disabled={
+                            !sessionUserId ||
+                            !(reelCommentDraft[r.id] ?? "").trim()
+                          }
+                          onClick={async () => {
+                            if (!sessionUserId) return;
+                            const text = (reelCommentDraft[r.id] ?? "").trim();
+                            if (!text) return;
+                            const created = await addReelComment(
+                              r.id,
+                              sessionUserId,
+                              text,
+                            );
+                            setReelComments((prev) => ({
+                              ...prev,
+                              [r.id]: [
+                                { id: created.id, userId: created.userId, text },
+                                ...(prev[r.id] ?? []),
+                              ],
+                            }));
+                            setReelCommentDraft((prev) => ({
+                              ...prev,
+                              [r.id]: "",
+                            }));
+                            setReels((prev) =>
+                              prev.map((x) =>
+                                x.id === r.id
+                                  ? {
+                                      ...x,
+                                      commentCount: x.commentCount + 1,
+                                    }
+                                  : x,
+                              ),
+                            );
+                          }}
+                        >
+                          Send
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={reelsSentinelRef} className="h-10" />
+              {reelBusy && (
+                <div className="py-4 text-center text-sm text-gray-600">
+                  Loading…
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+        </main>
+
+      </div>
 
       <ChatWidget
         groupId={groupId}
@@ -2195,6 +2901,30 @@ export function GroupHome({
           setGroup((g) => (g ? { ...g, name } : g))
         }
       />
+
+      {mediaPreview && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setMediaPreview(null)}
+        >
+          <div className="relative max-w-[95vw] max-h-[90vh]">
+            <img
+              src={mediaPreview}
+              alt="preview"
+              className="max-h-[90vh] max-w-[95vw] rounded-2xl object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button
+              type="button"
+              onClick={() => setMediaPreview(null)}
+              className="absolute -top-3 -right-3 h-9 w-9 rounded-full bg-white text-gray-900 shadow-soft"
+              title="Close"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

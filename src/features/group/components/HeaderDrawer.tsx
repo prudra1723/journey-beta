@@ -360,15 +360,6 @@ export function HeaderDrawer({
                   {title}
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-10 h-10 rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 font-extrabold"
-                title="Close"
-              >
-                ×
-              </button>
             </div>
 
             {/* Tabs */}
@@ -1111,10 +1102,9 @@ export function HeaderDrawer({
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-3 border-t border-gray-200 bg-white flex items-center justify-end">
-              <Button variant="ghost" onClick={onClose}>
-                Close
-              </Button>
+            <div className="px-4 py-3 border-t border-gray-200 bg-white text-center text-[11px] text-gray-600">
+              Design by Nexus Tech Group Sydney · Phone no +61430060860 ·
+              Copyright © 2026
             </div>
           </Card>
         </div>

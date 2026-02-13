@@ -33,5 +33,7 @@ export {
   deletePost,
   readMedia,
   addMedia,
+  addMediaCommentReply,
+  addMediaComment,
   deleteMedia,
 } from "./appDb";

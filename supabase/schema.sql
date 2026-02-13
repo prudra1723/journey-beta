@@ -89,6 +89,7 @@ create table if not exists media_items (
   image_url text not null,
   visibility text default 'group',
   created_by uuid references profiles(id),
+  comments jsonb default '[]'::jsonb,
   created_at timestamptz default now()
 );
 
@@ -114,3 +115,34 @@ create table if not exists chat_presence (
 
 create unique index if not exists chat_presence_unique
   on chat_presence (group_id, user_id);
+
+-- Reels (short video)
+create table if not exists reels (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid references groups(id) on delete cascade,
+  video_url text not null,
+  caption text,
+  created_by uuid references profiles(id),
+  created_at timestamptz default now()
+);
+
+create table if not exists reel_likes (
+  id uuid primary key default gen_random_uuid(),
+  reel_id uuid references reels(id) on delete cascade,
+  user_id uuid references profiles(id) on delete cascade,
+  created_at timestamptz default now(),
+  unique (reel_id, user_id)
+);
+
+create table if not exists reel_comments (
+  id uuid primary key default gen_random_uuid(),
+  reel_id uuid references reels(id) on delete cascade,
+  user_id uuid references profiles(id) on delete cascade,
+  text text not null,
+  created_at timestamptz default now()
+);
+
+-- Storage bucket for reels (public)
+insert into storage.buckets (id, name, public)
+values ('reels', 'reels', true)
+on conflict (id) do nothing;

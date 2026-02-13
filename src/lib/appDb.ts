@@ -679,6 +679,233 @@ export async function getTimeline(groupId: string): Promise<TimelinePost[]> {
   });
 }
 
+// Reels (short video)
+export type ReelItem = {
+  id: string;
+  groupId: string;
+  videoUrl: string;
+  caption?: string | null;
+  createdBy: string;
+  createdAt: number;
+  likeCount: number;
+  commentCount: number;
+  viewerLiked?: boolean;
+};
+
+export type ReelComment = {
+  id: string;
+  reelId: string;
+  userId: string;
+  text: string;
+  createdAt: number;
+};
+
+export async function uploadReelVideo(
+  groupId: string,
+  file: File,
+): Promise<string> {
+  const client = assertSupabase();
+  const ext = file.name.split(".").pop() || "mp4";
+  const path = `${groupId}/${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.${ext}`;
+  const { error: uploadErr } = await client.storage
+    .from("reels")
+    .upload(path, file, { upsert: false, contentType: file.type });
+  if (uploadErr) throw uploadErr;
+  const { data } = client.storage.from("reels").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export async function createReel(
+  groupId: string,
+  videoUrl: string,
+  createdBy: string,
+  caption?: string,
+) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("reels")
+    .insert({
+      group_id: groupId,
+      video_url: videoUrl,
+      caption: caption ?? null,
+      created_by: createdBy,
+    })
+    .select(
+      "id,group_id,video_url,caption,created_by,created_at,like_count,comment_count",
+    )
+    .single();
+  if (error) throw error;
+  return mapReelRow(data);
+}
+
+export async function getReels(
+  groupId: string,
+  viewerId: string | null,
+  page: number,
+  pageSize = 8,
+): Promise<{ items: ReelItem[]; hasMore: boolean }> {
+  const client = assertSupabase();
+  const from = page * pageSize;
+  const to = from + pageSize - 1;
+  const { data, error } = await client
+    .from("reels")
+    .select(
+      "id,group_id,video_url,caption,created_by,created_at",
+    )
+    .eq("group_id", groupId)
+    .order("created_at", { ascending: false })
+    .range(from, to);
+  if (error) throw error;
+  const base = (data ?? []).map(mapReelRow);
+  if (!viewerId || base.length === 0) {
+    const ids = base.map((r) => r.id);
+    const likeCounts = await getReelLikeCounts(ids);
+    const commentCounts = await getReelCommentCounts(ids);
+    const items = base.map((r) => ({
+      ...r,
+      likeCount: likeCounts.get(r.id) ?? 0,
+      commentCount: commentCounts.get(r.id) ?? 0,
+    }));
+    return { items, hasMore: base.length === pageSize };
+  }
+  const ids = base.map((r) => r.id);
+  const { data: likes, error: likeErr } = await client
+    .from("reel_likes")
+    .select("reel_id")
+    .eq("user_id", viewerId)
+    .in("reel_id", ids);
+  if (likeErr) throw likeErr;
+  const likedSet = new Set((likes ?? []).map((l) => l.reel_id as string));
+  const likeCounts = await getReelLikeCounts(ids);
+  const commentCounts = await getReelCommentCounts(ids);
+  const items = base.map((r) => ({
+    ...r,
+    viewerLiked: likedSet.has(r.id),
+    likeCount: likeCounts.get(r.id) ?? 0,
+    commentCount: commentCounts.get(r.id) ?? 0,
+  }));
+  return { items, hasMore: base.length === pageSize };
+}
+
+export async function toggleReelLike(reelId: string, userId: string) {
+  const client = assertSupabase();
+  const { data: existing } = await client
+    .from("reel_likes")
+    .select("id")
+    .eq("reel_id", reelId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (existing) {
+    const { error } = await client
+      .from("reel_likes")
+      .delete()
+      .eq("id", existing.id);
+    if (error) throw error;
+    return false;
+  }
+  const { error } = await client
+    .from("reel_likes")
+    .insert({ reel_id: reelId, user_id: userId });
+  if (error) throw error;
+  return true;
+}
+
+export async function addReelComment(
+  reelId: string,
+  userId: string,
+  text: string,
+) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("reel_comments")
+    .insert({ reel_id: reelId, user_id: userId, text })
+    .select("id,reel_id,user_id,text,created_at")
+    .single();
+  if (error) throw error;
+  return mapReelCommentRow(data);
+}
+
+export async function getReelComments(reelId: string) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("reel_comments")
+    .select("id,reel_id,user_id,text,created_at")
+    .eq("reel_id", reelId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(mapReelCommentRow);
+}
+
+function mapReelRow(row: {
+  id: string;
+  group_id: string;
+  video_url: string;
+  caption: string | null;
+  created_by: string;
+  created_at: string;
+}): ReelItem {
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    videoUrl: row.video_url,
+    caption: row.caption,
+    createdBy: row.created_by,
+    createdAt: new Date(row.created_at).getTime(),
+    likeCount: 0,
+    commentCount: 0,
+  };
+}
+
+function mapReelCommentRow(row: {
+  id: string;
+  reel_id: string;
+  user_id: string;
+  text: string;
+  created_at: string;
+}): ReelComment {
+  return {
+    id: row.id,
+    reelId: row.reel_id,
+    userId: row.user_id,
+    text: row.text,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
+async function getReelLikeCounts(ids: string[]) {
+  if (ids.length === 0) return new Map<string, number>();
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("reel_likes")
+    .select("reel_id")
+    .in("reel_id", ids);
+  if (error) throw error;
+  const map = new Map<string, number>();
+  for (const row of data ?? []) {
+    const id = row.reel_id as string;
+    map.set(id, (map.get(id) ?? 0) + 1);
+  }
+  return map;
+}
+
+async function getReelCommentCounts(ids: string[]) {
+  if (ids.length === 0) return new Map<string, number>();
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("reel_comments")
+    .select("reel_id")
+    .in("reel_id", ids);
+  if (error) throw error;
+  const map = new Map<string, number>();
+  for (const row of data ?? []) {
+    const id = row.reel_id as string;
+    map.set(id, (map.get(id) ?? 0) + 1);
+  }
+  return map;
+}
+
 export async function addTimelinePost(
   groupId: string,
   payload: {
@@ -799,7 +1026,7 @@ export async function readMedia(groupId: string) {
   const { data, error } = await client
     .from("media_items")
     .select(
-      "id,image_url,visibility,created_by,created_at,profiles:created_by(display_name)",
+      "id,image_url,visibility,created_by,created_at,comments,profiles:created_by(display_name)",
     )
     .eq("group_id", groupId)
     .order("created_at", { ascending: false });
@@ -812,6 +1039,7 @@ export async function readMedia(groupId: string) {
     visibility: "group" | "private" | "shared" | null;
     created_by: string;
     created_at: string;
+    comments?: unknown;
     profiles?: { display_name: string | null } | null;
   };
 
@@ -824,7 +1052,86 @@ export async function readMedia(groupId: string) {
       userId: row.created_by,
       name: row.profiles?.display_name ?? "Unknown",
     },
+    comments: Array.isArray(row.comments)
+      ? (row.comments as any[]).map((c) => ({
+          ...c,
+          replies: Array.isArray(c.replies) ? c.replies : [],
+        }))
+      : [],
   }));
+}
+
+export async function addMediaComment(
+  mediaId: string,
+  createdBy: { userId: string; name: string },
+  text: string,
+) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("media_items")
+    .select("comments")
+    .eq("id", mediaId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const existing = Array.isArray((data as any)?.comments)
+    ? ([...(data as any).comments] as any[])
+    : [];
+
+  const comment = {
+    id: `mc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    text: text.trim(),
+    createdAt: Date.now(),
+    createdBy,
+    replies: [],
+  };
+
+  existing.unshift(comment);
+
+  const { error: updateErr } = await client
+    .from("media_items")
+    .update({ comments: existing })
+    .eq("id", mediaId);
+  if (updateErr) throw updateErr;
+
+  return comment;
+}
+
+export async function addMediaCommentReply(
+  mediaId: string,
+  commentId: string,
+  createdBy: { userId: string; name: string },
+  text: string,
+) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("media_items")
+    .select("comments")
+    .eq("id", mediaId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const existing = Array.isArray((data as any)?.comments)
+    ? ([...(data as any).comments] as any[])
+    : [];
+
+  const idx = existing.findIndex((c) => c.id === commentId);
+  if (idx === -1) return;
+  const comment = existing[idx];
+  const replies = Array.isArray(comment.replies) ? comment.replies : [];
+  replies.push({
+    id: `mcr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    text: text.trim(),
+    createdAt: Date.now(),
+    createdBy,
+  });
+  existing[idx] = { ...comment, replies };
+
+  const { error: updateErr } = await client
+    .from("media_items")
+    .update({ comments: existing })
+    .eq("id", mediaId);
+  if (updateErr) throw updateErr;
 }
 
 export async function addMedia(

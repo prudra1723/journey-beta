@@ -41,6 +41,50 @@ body {
   }
 }
 
+.journey-tabbar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
+  width: min(95%, 72rem);
+}
+
+.journey-content {
+  padding-top: calc(var(--journey-header-h, 120px) + 16px);
+  padding-bottom: 40px;
+}
+
+@media (max-width: 639px) {
+  .journey-tabbar {
+    bottom: 12px;
+    top: auto;
+  }
+
+  .journey-content {
+    padding-bottom: 120px;
+  }
+}
+
+@media (min-width: 640px) {
+  .journey-tabbar {
+    top: calc(var(--journey-header-h, 120px) + 10px);
+    bottom: auto;
+  }
+
+  .journey-tabbar--pinned {
+    top: 8px;
+  }
+
+  .journey-tabbar--below {
+    top: calc(var(--journey-header-h, 120px) + 10px);
+  }
+
+  .journey-content {
+    padding-top: calc(var(--journey-header-h, 120px) + 110px);
+    padding-bottom: 40px;
+  }
+}
+
 @layer base {
   input,
   textarea,

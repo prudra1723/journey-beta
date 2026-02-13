@@ -7,14 +7,34 @@ type DinnerState = {
   closesAt?: number; // unix ms
 };
 
+type Reply = {
+  id: string;
+  text: string;
+  by: string;
+  byId?: string;
+  createdAt: number;
+};
+
 type FacilityState = {
   wifi: string;
   parking: string;
-  notes: { id: string; text: string; by: string; createdAt: number }[];
+  notes: {
+    id: string;
+    text: string;
+    by: string;
+    createdAt: number;
+    replies?: Reply[];
+  }[];
 };
 
 type EventNotesState = {
-  notes: { id: string; text: string; by: string; createdAt: number }[];
+  notes: {
+    id: string;
+    text: string;
+    by: string;
+    createdAt: number;
+    replies?: Reply[];
+  }[];
 };
 
 type SubPlanItem = {
@@ -35,6 +55,7 @@ type PlanComment = {
   byId?: string;
   createdAt: number;
   imageDataUrl?: string;
+  replies?: Reply[];
 };
 
 type ExtrasState = {
@@ -299,6 +320,7 @@ export function addFacilityNote(
     text: text.trim(),
     by,
     createdAt: Date.now(),
+    replies: [],
   });
   writeAll(groupId, itemId, all);
 }
@@ -310,6 +332,26 @@ export function deleteFacilityNote(
 ) {
   const all = readAll(groupId, itemId);
   all.facility.notes = all.facility.notes.filter((n) => n.id !== noteId);
+  writeAll(groupId, itemId, all);
+}
+
+export function addFacilityNoteReply(
+  groupId: string,
+  itemId: string,
+  noteId: string,
+  by: string,
+  text: string,
+) {
+  const all = readAll(groupId, itemId);
+  const note = all.facility.notes.find((n) => n.id === noteId);
+  if (!note) return;
+  note.replies = note.replies ?? [];
+  note.replies.push({
+    id: uid("fnr"),
+    text: text.trim(),
+    by,
+    createdAt: Date.now(),
+  });
   writeAll(groupId, itemId, all);
 }
 
@@ -334,6 +376,7 @@ export function addEventNote(
     text: text.trim(),
     by,
     createdAt: Date.now(),
+    replies: [],
   });
   writeAll(groupId, itemId, all);
 }
@@ -345,6 +388,26 @@ export function deleteEventNote(
 ) {
   const all = readAll(groupId, itemId);
   all.eventNotes.notes = all.eventNotes.notes.filter((n) => n.id !== noteId);
+  writeAll(groupId, itemId, all);
+}
+
+export function addEventNoteReply(
+  groupId: string,
+  itemId: string,
+  noteId: string,
+  by: string,
+  text: string,
+) {
+  const all = readAll(groupId, itemId);
+  const note = all.eventNotes.notes.find((n) => n.id === noteId);
+  if (!note) return;
+  note.replies = note.replies ?? [];
+  note.replies.push({
+    id: uid("enr"),
+    text: text.trim(),
+    by,
+    createdAt: Date.now(),
+  });
   writeAll(groupId, itemId, all);
 }
 
@@ -396,6 +459,7 @@ export function addPlanComment(
     byId: byId ?? undefined,
     createdAt: Date.now(),
     imageDataUrl: imageDataUrl ?? undefined,
+    replies: [],
   });
   writeAll(groupId, itemId, all);
 }
@@ -409,5 +473,28 @@ export function deletePlanComment(
   all.planComments = (all.planComments ?? []).filter(
     (c) => c.id !== commentId,
   );
+  writeAll(groupId, itemId, all);
+}
+
+export function addPlanCommentReply(
+  groupId: string,
+  itemId: string,
+  commentId: string,
+  by: string,
+  text: string,
+  byId?: string,
+) {
+  const all = readAll(groupId, itemId);
+  const list = all.planComments ?? [];
+  const comment = list.find((c) => c.id === commentId);
+  if (!comment) return;
+  comment.replies = comment.replies ?? [];
+  comment.replies.push({
+    id: uid("pcr"),
+    text: text.trim(),
+    by,
+    byId: byId ?? undefined,
+    createdAt: Date.now(),
+  });
   writeAll(groupId, itemId, all);
 }

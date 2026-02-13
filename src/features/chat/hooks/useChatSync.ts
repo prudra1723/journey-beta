@@ -36,14 +36,36 @@ export function useChatSync({
   const [online, setOnline] = useState<ChatUser[]>([]);
   const [toast, setToast] = useState<string | null>(null);
 
-  const lastSeenCountRef = useRef(0);
-  const lastOpenAtRef = useRef<number>(0);
+  const lastSeenAtRef = useRef<number>(0);
+  const lastNotifiedIdRef = useRef<string | null>(null);
+  const lastSeenKey = useMemo(() => {
+    if (!groupId || !me?.userId) return "";
+    return `journey_beta_chat_last_seen:${groupId}:${me.userId}`;
+  }, [groupId, me?.userId]);
+
+  useEffect(() => {
+    if (!lastSeenKey) return;
+    const raw = localStorage.getItem(lastSeenKey);
+    const ts = raw ? Number(raw) : 0;
+    if (Number.isFinite(ts)) lastSeenAtRef.current = ts;
+  }, [lastSeenKey]);
 
   const unreadCount = useMemo(() => {
-    // Simple unread logic: when closed, count new messages since last open
     if (open) return 0;
-    return Math.max(0, messages.length - lastSeenCountRef.current);
-  }, [messages.length, open]);
+    const lastSeen = lastSeenAtRef.current;
+    if (!lastSeen) return messages.length;
+    return messages.reduce(
+      (acc, m) => (m.createdAt > lastSeen ? acc + 1 : acc),
+      0,
+    );
+  }, [messages, open]);
+
+  function persistLastSeen(ts: number) {
+    lastSeenAtRef.current = ts;
+    if (lastSeenKey) {
+      localStorage.setItem(lastSeenKey, String(ts));
+    }
+  }
 
   async function refreshAll() {
     const [msgs, members, on] = await Promise.all([
@@ -56,9 +78,33 @@ export function useChatSync({
     setKnownMembers(members);
     setOnline(on);
 
-    // If chat is open, mark as read (by count)
+    if (open && msgs.length) {
+      persistLastSeen(msgs[msgs.length - 1].createdAt);
+    }
+  }
+
+  async function refreshMessagesOnly({ notify }: { notify: boolean }) {
+    const msgs = await getMessages(groupId);
+    setMessages(msgs);
+
+    if (!msgs.length) return;
+    const latest = msgs[msgs.length - 1];
+
     if (open) {
-      lastSeenCountRef.current = msgs.length;
+      persistLastSeen(latest.createdAt);
+      lastNotifiedIdRef.current = null;
+      return;
+    }
+
+    const lastSeen = lastSeenAtRef.current;
+    if (
+      notify &&
+      latest.createdAt > lastSeen &&
+      latest.id !== lastNotifiedIdRef.current &&
+      latest.createdBy.userId !== me?.userId
+    ) {
+      lastNotifiedIdRef.current = latest.id;
+      setToast(latest.text || `${latest.createdBy.name} sent a message`);
     }
   }
 
@@ -72,19 +118,23 @@ export function useChatSync({
   // When opened, mark read and refresh
   useEffect(() => {
     if (!open) return;
-    lastOpenAtRef.current = Date.now();
     refreshAll().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Poll messages only while open
+  // Poll messages: faster when open, slower when closed (to update unread + toast)
   useEffect(() => {
-    if (!groupId || !open) return;
-
-    const t = window.setInterval(() => {
-      refreshAll().catch(() => {});
-    }, 3000);
-
+    if (!groupId) return;
+    const intervalMs = open ? 3000 : 10000;
+    const fn = () => {
+      if (open) {
+        refreshAll().catch(() => {});
+      } else {
+        refreshMessagesOnly({ notify: true }).catch(() => {});
+      }
+    };
+    fn();
+    const t = window.setInterval(fn, intervalMs);
     return () => window.clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, open]);
@@ -132,7 +182,9 @@ export function useChatSync({
       // optimistic refresh
       const msgs = await getMessages(groupId);
       setMessages(msgs);
-      if (open) lastSeenCountRef.current = msgs.length;
+      if (open && msgs.length) {
+        persistLastSeen(msgs[msgs.length - 1].createdAt);
+      }
     } catch (e: any) {
       setToast(e?.message ?? "Send failed");
     }

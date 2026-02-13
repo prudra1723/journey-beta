@@ -1,5 +1,5 @@
 // src/components/ChatWidget.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getSession } from "../lib/session";
 import type { ChatUser } from "../lib/chatDb";
 import { updateGroupName } from "../lib/appDb";
@@ -31,6 +31,7 @@ export default function ChatWidget({
   const [nameDraft, setNameDraft] = useState(groupName ?? "");
   const [nameBusy, setNameBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const {
     messages,
@@ -57,6 +58,13 @@ export default function ChatWidget({
       document.body.classList.remove("chat-open");
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+  }, [open, messages.length]);
 
   async function saveGroupName() {
     const next = nameDraft.trim();
@@ -339,6 +347,7 @@ export default function ChatWidget({
                 </div>
               );
             })}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Input */}

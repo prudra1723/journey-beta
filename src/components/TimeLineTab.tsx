@@ -138,20 +138,32 @@ function LikeLine({ liked, count }: { liked: boolean; count: number }) {
 }
 
 /** ---------- Images ---------- */
-function SingleImage({ src }: { src: string }) {
+function SingleImage({
+  src,
+  onPreview,
+}: {
+  src: string;
+  onPreview: (index: number) => void;
+}) {
   return (
     <div className="w-full overflow-hidden rounded-2xl border border-gray-200">
       <img
         src={src}
         alt="post"
-        className="w-full h-[320px] sm:h-[520px] lg:h-[680px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
+        className="w-full h-[320px] sm:h-[520px] lg:h-[680px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
         loading="lazy"
-        onClick={() => window.open(src, "_blank", "noopener,noreferrer")}
+        onClick={() => onPreview(0)}
       />
     </div>
   );
 }
-function TwoImages({ images }: { images: string[] }) {
+function TwoImages({
+  images,
+  onPreview,
+}: {
+  images: string[];
+  onPreview: (index: number) => void;
+}) {
   return (
     <div className="grid grid-cols-2 gap-2">
       {images.slice(0, 2).map((src, idx) => (
@@ -162,55 +174,61 @@ function TwoImages({ images }: { images: string[] }) {
           <img
             src={src}
             alt={`post-${idx}`}
-            className="w-full h-[200px] sm:h-[260px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
+            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
             loading="lazy"
-            onClick={() => window.open(src, "_blank", "noopener,noreferrer")}
+            onClick={() => onPreview(idx)}
           />
         </div>
       ))}
     </div>
   );
 }
-function ThreeImages({ images }: { images: string[] }) {
+function ThreeImages({
+  images,
+  onPreview,
+}: {
+  images: string[];
+  onPreview: (index: number) => void;
+}) {
   return (
     <div className="grid grid-cols-2 gap-2">
       <div className="col-span-1 row-span-2 overflow-hidden rounded-2xl border border-gray-200">
         <img
           src={images[0]}
           alt="post-0"
-          className="w-full h-[380px] sm:h-[528px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
+          className="w-full h-[380px] sm:h-[528px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
           loading="lazy"
-          onClick={() =>
-            window.open(images[0], "_blank", "noopener,noreferrer")
-          }
+          onClick={() => onPreview(0)}
         />
       </div>
       <div className="col-span-1 overflow-hidden rounded-2xl border border-gray-200">
         <img
           src={images[1]}
           alt="post-1"
-          className="w-full h-[180px] sm:h-[260px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
+          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
           loading="lazy"
-          onClick={() =>
-            window.open(images[1], "_blank", "noopener,noreferrer")
-          }
+          onClick={() => onPreview(1)}
         />
       </div>
       <div className="col-span-1 overflow-hidden rounded-2xl border border-gray-200">
         <img
           src={images[2]}
           alt="post-2"
-          className="w-full h-[180px] sm:h-[260px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
+          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
           loading="lazy"
-          onClick={() =>
-            window.open(images[2], "_blank", "noopener,noreferrer")
-          }
+          onClick={() => onPreview(2)}
         />
       </div>
     </div>
   );
 }
-function FourImages({ images }: { images: string[] }) {
+function FourImages({
+  images,
+  onPreview,
+}: {
+  images: string[];
+  onPreview: (index: number) => void;
+}) {
   return (
     <div className="grid grid-cols-2 gap-2">
       {images.slice(0, 4).map((src, idx) => (
@@ -221,16 +239,22 @@ function FourImages({ images }: { images: string[] }) {
           <img
             src={src}
             alt={`post-${idx}`}
-            className="w-full h-[200px] sm:h-[260px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
+            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
             loading="lazy"
-            onClick={() => window.open(src, "_blank", "noopener,noreferrer")}
+            onClick={() => onPreview(idx)}
           />
         </div>
       ))}
     </div>
   );
 }
-function ManyImages({ images }: { images: string[] }) {
+function ManyImages({
+  images,
+  onPreview,
+}: {
+  images: string[];
+  onPreview: (index: number) => void;
+}) {
   const firstFour = images.slice(0, 4);
   const remaining = images.length - 4;
 
@@ -244,17 +268,15 @@ function ManyImages({ images }: { images: string[] }) {
           <img
             src={src}
             alt={`post-${idx}`}
-            className="w-full h-[200px] sm:h-[260px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
+            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
             loading="lazy"
-            onClick={() => window.open(src, "_blank", "noopener,noreferrer")}
+            onClick={() => onPreview(idx)}
           />
           {idx === 3 && remaining > 0 && (
             <button
               type="button"
               className="absolute inset-0 bg-black/55 flex items-center justify-center cursor-pointer"
-              onClick={() =>
-                window.open(images[0], "_blank", "noopener,noreferrer")
-              }
+              onClick={() => onPreview(0)}
               title="Open photo"
             >
               <span className="text-white text-2xl font-extrabold">
@@ -267,13 +289,23 @@ function ManyImages({ images }: { images: string[] }) {
     </div>
   );
 }
-function ImageDisplay({ images }: { images: string[] }) {
+function ImageDisplay({
+  images,
+  onPreview,
+}: {
+  images: string[];
+  onPreview: (index: number) => void;
+}) {
   if (images.length === 0) return null;
-  if (images.length === 1) return <SingleImage src={images[0]} />;
-  if (images.length === 2) return <TwoImages images={images} />;
-  if (images.length === 3) return <ThreeImages images={images} />;
-  if (images.length === 4) return <FourImages images={images} />;
-  return <ManyImages images={images} />;
+  if (images.length === 1)
+    return <SingleImage src={images[0]} onPreview={onPreview} />;
+  if (images.length === 2)
+    return <TwoImages images={images} onPreview={onPreview} />;
+  if (images.length === 3)
+    return <ThreeImages images={images} onPreview={onPreview} />;
+  if (images.length === 4)
+    return <FourImages images={images} onPreview={onPreview} />;
+  return <ManyImages images={images} onPreview={onPreview} />;
 }
 
 /** ---------- Share links ---------- */
@@ -340,6 +372,8 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
   const [openWhoReacted, setOpenWhoReacted] = useState<Record<string, boolean>>(
     {},
   );
+  const [previewImages, setPreviewImages] = useState<string[] | null>(null);
+  const [previewIndex, setPreviewIndex] = useState(0);
 
   // Share (portal popover)
   const shareBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -694,7 +728,7 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-[5px]">
       {loading && (
         <Card>
           <div className="text-sm text-gray-600">Loading timeline…</div>
@@ -727,7 +761,13 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
                 <div className="text-sm font-semibold text-gray-700 mb-2">
                   Selected photos • {imagePreviews.length}
                 </div>
-                <ImageDisplay images={imagePreviews} />
+                <ImageDisplay
+                  images={imagePreviews}
+                  onPreview={(index) => {
+                    setPreviewImages(imagePreviews);
+                    setPreviewIndex(index);
+                  }}
+                />
                 <div className="mt-2 flex flex-wrap gap-2">
                   {imagePreviews.map((_, idx) => (
                     <button
@@ -852,7 +892,13 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
 
                         {editImages.length > 0 && (
                           <div className="space-y-2">
-                            <ImageDisplay images={editImages} />
+                            <ImageDisplay
+                              images={editImages}
+                              onPreview={(index) => {
+                                setPreviewImages(editImages);
+                                setPreviewIndex(index);
+                              }}
+                            />
                             <div className="flex flex-wrap gap-2">
                               {editImages.map((_, idx) => (
                                 <button
@@ -947,7 +993,13 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
                 {/* Images */}
                 {editingId !== p.id && images.length > 0 && (
                   <div className="mt-2">
-                    <ImageDisplay images={images} />
+                    <ImageDisplay
+                      images={images}
+                      onPreview={(index) => {
+                        setPreviewImages(images);
+                        setPreviewIndex(index);
+                      }}
+                    />
                   </div>
                 )}
 
@@ -1340,6 +1392,63 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
           })}
         </div>
       )}
+
+      {previewImages &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4"
+            onClick={() => setPreviewImages(null)}
+          >
+            <div className="relative max-w-[95vw] max-h-[90vh]">
+              <img
+                src={previewImages[previewIndex]}
+                alt="preview"
+                className="max-h-[90vh] max-w-[95vw] rounded-2xl object-contain"
+                onClick={(e) => e.stopPropagation()}
+              />
+              {previewImages.length > 1 && (
+                <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between px-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPreviewIndex((i) =>
+                        i === 0 ? previewImages.length - 1 : i - 1,
+                      );
+                    }}
+                    className="h-10 w-10 rounded-full bg-white/90 text-gray-900 shadow-soft"
+                    title="Previous"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPreviewIndex((i) =>
+                        i === previewImages.length - 1 ? 0 : i + 1,
+                      );
+                    }}
+                    className="h-10 w-10 rounded-full bg-white/90 text-gray-900 shadow-soft"
+                    title="Next"
+                  >
+                    ›
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setPreviewImages(null)}
+                className="absolute -top-3 -right-3 h-9 w-9 rounded-full bg-white text-gray-900 shadow-soft"
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

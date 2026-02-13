@@ -9,6 +9,9 @@ alter table timeline_comments enable row level security;
 alter table media_items enable row level security;
 alter table chat_messages enable row level security;
 alter table chat_presence enable row level security;
+alter table reels enable row level security;
+alter table reel_likes enable row level security;
+alter table reel_comments enable row level security;
 alter table plan_extras enable row level security;
 
 -- Profiles: user can read all profiles, but only update self
@@ -172,3 +175,50 @@ create policy "chat_presence_member_access"
     select 1 from group_members gm
     where gm.group_id = chat_presence.group_id and gm.user_id = auth.uid()
   ));
+
+-- Reels: members only
+create policy "reels_member_access"
+  on reels for all
+  using (exists (
+    select 1 from group_members gm
+    where gm.group_id = reels.group_id and gm.user_id = auth.uid()
+  ))
+  with check (exists (
+    select 1 from group_members gm
+    where gm.group_id = reels.group_id and gm.user_id = auth.uid()
+  ));
+
+create policy "reel_likes_member_access"
+  on reel_likes for all
+  using (exists (
+    select 1 from reels r
+    join group_members gm on gm.group_id = r.group_id
+    where r.id = reel_likes.reel_id and gm.user_id = auth.uid()
+  ))
+  with check (exists (
+    select 1 from reels r
+    join group_members gm on gm.group_id = r.group_id
+    where r.id = reel_likes.reel_id and gm.user_id = auth.uid()
+  ));
+
+create policy "reel_comments_member_access"
+  on reel_comments for all
+  using (exists (
+    select 1 from reels r
+    join group_members gm on gm.group_id = r.group_id
+    where r.id = reel_comments.reel_id and gm.user_id = auth.uid()
+  ))
+  with check (exists (
+    select 1 from reels r
+    join group_members gm on gm.group_id = r.group_id
+    where r.id = reel_comments.reel_id and gm.user_id = auth.uid()
+  ));
+
+-- Storage: reels bucket (authenticated users only)
+create policy "reels_storage_select"
+  on storage.objects for select
+  using (bucket_id = 'reels');
+
+create policy "reels_storage_insert"
+  on storage.objects for insert
+  with check (bucket_id = 'reels' and auth.uid() is not null);
