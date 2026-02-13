@@ -1236,23 +1236,23 @@ export function GroupHome({
       >
         <div className="mx-auto w-full max-w-6xl">
           {/* Top bar (logo + menu) sits ABOVE the banner image */}
-          <div className="journey-header-inner px-[5px] py-[5px] flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-4">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="journey-header-inner px-3 py-2 sm:px-4 sm:py-3 flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <button
                 type="button"
                 onClick={() => setTabAndScroll("timeline")}
-                className="rounded-xl focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
+                className="rounded-xl focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 shrink-0"
                 aria-label="Go to Home"
                 title="Home"
               >
                 <img
                   src={logo}
                   alt="logo"
-                  className="journey-header-logo h-42 w-42 sm:h-48 sm:w-48 object-contain"
+                  className="journey-header-logo h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 object-contain"
                 />
               </button>
               <div className="min-w-0">
-                <div className="journey-header-title text-sm font-extrabold text-gray-900 truncate tracking-tight">
+                <div className="journey-header-title text-sm sm:text-base font-extrabold text-gray-900 truncate tracking-tight">
                   Journey • {group.name}
                 </div>
                 {me ? (
@@ -1270,11 +1270,13 @@ export function GroupHome({
 
             <button
               type="button"
-              className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-extrabold hover:bg-gray-50 w-full sm:w-auto flex items-center justify-center gap-2"
+              className="shrink-0 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-gray-200 bg-white text-[11px] sm:text-sm font-semibold sm:font-extrabold hover:bg-gray-50 w-auto flex items-center justify-center gap-2"
               onClick={() => setDrawerOpen(true)}
               title="Menu"
+              aria-label="Menu"
             >
-              ☰ Menu
+              <span className="text-base">☰</span>
+              <span className="hidden sm:inline">Menu</span>
             </button>
           </div>
 

@@ -56,12 +56,12 @@ body {
 
 @media (max-width: 639px) {
   .journey-tabbar {
-    bottom: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     top: auto;
   }
 
   .journey-content {
-    padding-bottom: 120px;
+    padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
   }
 }
 
