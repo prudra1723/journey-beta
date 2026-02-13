@@ -45,7 +45,7 @@ body {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 45;
+  z-index: 60;
   width: min(95%, 72rem);
 }
 
@@ -67,16 +67,16 @@ body {
 
 @media (min-width: 640px) {
   .journey-tabbar {
-    top: calc(var(--journey-header-h, 120px) + 10px);
+    top: calc(var(--journey-header-h, 120px) + 28px + env(safe-area-inset-top, 0px));
     bottom: auto;
   }
 
   .journey-tabbar--pinned {
-    top: 8px;
+    top: calc(12px + env(safe-area-inset-top, 0px));
   }
 
   .journey-tabbar--below {
-    top: calc(var(--journey-header-h, 120px) + 10px);
+    top: calc(var(--journey-header-h, 120px) + 28px + env(safe-area-inset-top, 0px));
   }
 
   .journey-content {

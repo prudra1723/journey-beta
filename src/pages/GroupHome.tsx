@@ -7,6 +7,7 @@ import ChatWidget from "../components/ChatWidget";
 import TimelineTab from "../components/TimeLineTab";
 import logo from "../assets/logo.png";
 import navIcon from "../assets/nav-icon.svg";
+import sydneyBanner from "../assets/Sydney_Harbour_Banner.jpg";
 import {
   addMedia,
   addMediaComment,
@@ -19,13 +20,7 @@ import {
   getGroupMeta,
   getMyRole,
   getPlan,
-  getReelComments,
-  getReels,
   getTimeline,
-  uploadReelVideo,
-  createReel,
-  toggleReelLike,
-  addReelComment,
   readMedia,
   updateGroupName,
   updatePlanItem,
@@ -55,7 +50,7 @@ import { FacilityNotesBox } from "../features/group/components/FacilityNotesBox"
 import { EventNotesBox } from "../features/group/components/EventNotesBox";
 import { readGroupHeaderImage } from "../lib/groupHeaderImage";
 
-type TabKey = "timeline" | "plan" | "media" | "reels";
+type TabKey = "timeline" | "plan" | "media";
 
 const ABOUT_OPTIONS = [
   { value: "", label: "Select type" },
@@ -122,16 +117,6 @@ function MediaIcon() {
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <circle cx="8" cy="10" r="2" />
       <path d="M21 17l-6-6-4 4-2-2-4 4" />
-    </svg>
-  );
-}
-
-function ReelsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 8h18M8 4l2 4M14 4l2 4" />
-      <path d="M10 12l6 4-6 4z" />
     </svg>
   );
 }
@@ -351,29 +336,6 @@ export function GroupHome({
   const [loadingGroup, setLoadingGroup] = useState(true);
   const [groupError, setGroupError] = useState<string | null>(null);
 
-  const [reels, setReels] = useState<
-    Array<{
-      id: string;
-      videoUrl: string;
-      caption?: string | null;
-      likeCount: number;
-      commentCount: number;
-      viewerLiked?: boolean;
-    }>
-  >([]);
-  const [reelComments, setReelComments] = useState<
-    Record<string, Array<{ id: string; userId: string; text: string }>>
-  >({});
-  const [reelCommentDraft, setReelCommentDraft] = useState<
-    Record<string, string>
-  >({});
-  const [reelBusy, setReelBusy] = useState(false);
-  const [reelError, setReelError] = useState<string | null>(null);
-  const [reelPage, setReelPage] = useState(0);
-  const [reelHasMore, setReelHasMore] = useState(true);
-  const reelsInputRef = useRef<HTMLInputElement | null>(null);
-  const reelsSentinelRef = useRef<HTMLDivElement | null>(null);
-
   const session = getSession();
   const sessionUserId = session?.userId ?? null;
   const me = session ? { userId: session.userId, name: session.name } : null;
@@ -386,72 +348,13 @@ export function GroupHome({
       if (!raw) return "timeline";
       const parsed = JSON.parse(raw) as { tab?: TabKey };
       const next = parsed.tab ?? "timeline";
-      return ["timeline", "plan", "media", "reels"].includes(next)
+      return ["timeline", "plan", "media"].includes(next)
         ? (next as TabKey)
         : "timeline";
     } catch {
       return "timeline";
     }
   });
-
-  useEffect(() => {
-    // load reels when tab opens
-    if (tab !== "reels") return;
-    let mounted = true;
-    void (async () => {
-      try {
-        setReelError(null);
-        setReelBusy(true);
-        setReelPage(0);
-        const res = await getReels(groupId, sessionUserId, 0);
-        if (!mounted) return;
-        setReels(res.items);
-        setReelHasMore(res.hasMore);
-      } catch (err) {
-        const msg =
-          (err as { message?: string })?.message ?? "Could not load reels.";
-        if (mounted) setReelError(msg);
-      } finally {
-        if (mounted) setReelBusy(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [tab, groupId, sessionUserId]);
-
-  useEffect(() => {
-    if (tab !== "reels") return;
-    if (!reelsSentinelRef.current) return;
-    const node = reelsSentinelRef.current;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        const hit = entries.some((e) => e.isIntersecting);
-        if (hit && !reelBusy && reelHasMore) {
-          void (async () => {
-            try {
-              setReelBusy(true);
-              const nextPage = reelPage + 1;
-              const res = await getReels(groupId, sessionUserId, nextPage);
-              setReels((prev) => [...prev, ...res.items]);
-              setReelHasMore(res.hasMore);
-              setReelPage(nextPage);
-            } catch (err) {
-              const msg =
-                (err as { message?: string })?.message ??
-                "Could not load more reels.";
-              setReelError(msg);
-            } finally {
-              setReelBusy(false);
-            }
-          })();
-        }
-      },
-      { threshold: 0.2 },
-    );
-    obs.observe(node);
-    return () => obs.disconnect();
-  }, [tab, groupId, sessionUserId, reelBusy, reelHasMore, reelPage]);
 
   function setTabAndScroll(next: TabKey) {
     setTab(next);
@@ -460,34 +363,6 @@ export function GroupHome({
     }
   }
 
-  function handleAddReel() {
-    reelsInputRef.current?.click();
-  }
-
-  async function handleReelFileChange(
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!sessionUserId) {
-      setReelError("Login required to upload.");
-      return;
-    }
-    try {
-      setReelError(null);
-      setReelBusy(true);
-      const videoUrl = await uploadReelVideo(groupId, file);
-      const created = await createReel(groupId, videoUrl, sessionUserId);
-      setReels((prev) => [created, ...prev]);
-    } catch (err) {
-      const msg =
-        (err as { message?: string })?.message ?? "Upload failed.";
-      setReelError(msg);
-    } finally {
-      setReelBusy(false);
-      e.target.value = "";
-    }
-  }
 
   const [activeDay, setActiveDay] = useState<PlanDayKey>(() => {
     try {
@@ -546,10 +421,10 @@ export function GroupHome({
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const templateInputRef = useRef<HTMLInputElement | null>(null);
-  const [, setCustomHeaderBg] = useState<string | null>(() =>
+  const [customHeaderBg, setCustomHeaderBg] = useState<string | null>(() =>
     readGroupHeaderImage(groupId),
   );
-  const headerBg = null;
+  const headerBg = customHeaderBg ?? sydneyBanner;
   const autoRenamedRef = useRef(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1356,71 +1231,53 @@ export function GroupHome({
       {/* Header */}
       <div
         ref={headerRef}
-        className={[
-          "journey-header fixed top-0 left-0 right-0 z-50 mx-[5px] mt-[5px] overflow-hidden relative bg-transparent",
-        ].join(" ")}
-        style={
-          headerBg
-            ? {
-                backgroundImage: `url(${headerBg})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-              }
-            : undefined
-        }
+        className="journey-header fixed top-0 left-0 right-0 z-50 mx-[5px] mt-[5px]"
       >
-        {headerBg && (
-          <div className="absolute inset-0 bg-white/25" aria-hidden="true" />
-        )}
-        <div className="journey-header-inner relative mx-auto w-full max-w-6xl px-[5px] py-[5px] flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={() => setTabAndScroll("timeline")}
-              className="rounded-xl focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
-              aria-label="Go to Home"
-              title="Home"
-            >
-            <button
-              type="button"
-              onClick={onBack}
-              className="rounded-xl focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
-              aria-label="Go to dashboard"
-              title="Dashboard"
-            >
-              <img
-                src={logo}
-                alt="logo"
-                className="journey-header-logo h-42 w-42 sm:h-48 sm:w-48 object-contain"
-              />
-            </button>
-            </button>
-            <div className="min-w-0">
-              <div className="journey-header-title text-sm font-extrabold text-gray-900 truncate tracking-tight">
-                Journey • {group.name}
+        <div className="mx-auto w-full max-w-6xl">
+          {/* Top bar (logo + menu) sits ABOVE the banner image */}
+          <div className="journey-header-inner px-[5px] py-[5px] flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => setTabAndScroll("timeline")}
+                className="rounded-xl focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
+                aria-label="Go to Home"
+                title="Home"
+              >
+                <img
+                  src={logo}
+                  alt="logo"
+                  className="journey-header-logo h-42 w-42 sm:h-48 sm:w-48 object-contain"
+                />
+              </button>
+              <div className="min-w-0">
+                <div className="journey-header-title text-sm font-extrabold text-gray-900 truncate tracking-tight">
+                  Journey • {group.name}
+                </div>
+                {me ? (
+                  <div className="journey-header-subtitle text-xs text-gray-600 font-semibold flex items-center gap-2 truncate">
+                    <UserAvatar userId={me.userId} name={me.name} size={20} />
+                    <span className="truncate">Signed in as {me.name}</span>
+                  </div>
+                ) : (
+                  <div className="journey-header-subtitle text-xs text-gray-600 font-semibold truncate">
+                    Login required to post notes
+                  </div>
+                )}
               </div>
-              {me ? (
-                <div className="journey-header-subtitle text-xs text-gray-600 font-semibold flex items-center gap-2 truncate">
-                  <UserAvatar userId={me.userId} name={me.name} size={20} />
-                  <span className="truncate">Signed in as {me.name}</span>
-                </div>
-              ) : (
-                <div className="journey-header-subtitle text-xs text-gray-600 font-semibold truncate">
-                  Login required to post notes
-                </div>
-              )}
             </div>
+
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-extrabold hover:bg-gray-50 w-full sm:w-auto flex items-center justify-center gap-2"
+              onClick={() => setDrawerOpen(true)}
+              title="Menu"
+            >
+              ☰ Menu
+            </button>
           </div>
 
-          {/* ✅ Menu button opens drawer */}
-          <button
-            type="button"
-            className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-extrabold hover:bg-gray-50 w-full sm:w-auto flex items-center justify-center gap-2"
-            onClick={() => setDrawerOpen(true)}
-            title="Menu"
-          >
-            ☰ Menu
-          </button>
+          {/* header image removed */}
         </div>
       </div>
 
@@ -1446,7 +1303,7 @@ export function GroupHome({
           ].join(" ")}
         >
           <div className="rounded-3xl border border-gray-200 bg-white/90 shadow-soft p-2">
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <TabButton
                 active={tab === "timeline"}
                 onClick={() => {
@@ -1468,12 +1325,6 @@ export function GroupHome({
                 label="Media"
                 icon={<MediaIcon />}
               />
-              <TabButton
-                active={tab === "reels"}
-                onClick={() => setTabAndScroll("reels")}
-                label="Reels"
-                icon={<ReelsIcon />}
-              />
             </div>
           </div>
         </div>
@@ -1484,8 +1335,9 @@ export function GroupHome({
         </div>
 
         <div className={tab === "plan" ? "" : "hidden"}>
-          <>
+          <div className="space-y-4">
             <Card>
+              <div>
               <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
                 <div>
                   <div className="text-xl font-extrabold text-gray-900 tracking-tight">
@@ -1629,6 +1481,7 @@ export function GroupHome({
                   </button>
                 ))}
               </div>
+              </div>
             </Card>
 
             {/* Add/Edit form */}
@@ -1657,270 +1510,269 @@ export function GroupHome({
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="text-sm font-semibold text-gray-900">
-                    Day
-                  </label>
-                  <select
-                    value={form.day}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        day: e.target.value as PlanDayKey,
-                      }))
-                    }
-                    className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                  >
-                    {dayMeta.map((d) => (
-                      <option key={d.key} value={d.key}>
-                        {dayTitle(d.key)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-gray-900">
-                    About this day
-                  </label>
-                  <select
-                    value={form.about}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, about: e.target.value }))
-                    }
-                    className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                  >
-                    {ABOUT_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
                     <label className="text-sm font-semibold text-gray-900">
-                      Activities / Destinations
+                      Day
                     </label>
-                    <Button
-                      variant="ghost"
-                      onClick={() =>
+                    <select
+                      value={form.day}
+                      onChange={(e) =>
                         setForm((f) => ({
                           ...f,
-                          subItems: [...f.subItems, makeSubItem()],
+                          day: e.target.value as PlanDayKey,
                         }))
                       }
-                      className="w-full sm:w-auto"
+                      className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
                     >
-                      + Add activity
-                    </Button>
+                      {dayMeta.map((d) => (
+                        <option key={d.key} value={d.key}>
+                          {dayTitle(d.key)}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
-                  <div className="mt-3 space-y-3">
-                    {form.subItems.map((sub, idx) => (
-                      <div
-                        key={sub.id}
-                        className="rounded-2xl border border-gray-200 bg-white p-3"
+                  <div>
+                    <label className="text-sm font-semibold text-gray-900">
+                      About this day
+                    </label>
+                    <select
+                      value={form.about}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, about: e.target.value }))
+                      }
+                      className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                    >
+                      {ABOUT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <label className="text-sm font-semibold text-gray-900">
+                        Activities / Destinations
+                      </label>
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            subItems: [...f.subItems, makeSubItem()],
+                          }))
+                        }
+                        className="w-full sm:w-auto"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-xs font-semibold text-gray-600">
-                            Item {idx + 1}
+                        + Add activity
+                      </Button>
+                    </div>
+
+                    <div className="mt-3 space-y-3">
+                      {form.subItems.map((sub, idx) => (
+                        <div
+                          key={sub.id}
+                          className="rounded-2xl border border-gray-200 bg-white p-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-semibold text-gray-600">
+                              Item {idx + 1}
+                            </div>
+                            {form.subItems.length > 1 && (
+                              <button
+                                type="button"
+                                className="text-xs font-semibold text-red-600 hover:underline"
+                                onClick={() =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    subItems: f.subItems.filter(
+                                      (s) => s.id !== sub.id,
+                                    ),
+                                  }))
+                                }
+                              >
+                                Remove
+                              </button>
+                            )}
                           </div>
-                          {form.subItems.length > 1 && (
-                            <button
-                              type="button"
-                              className="text-xs font-semibold text-red-600 hover:underline"
-                              onClick={() =>
-                                setForm((f) => ({
-                                  ...f,
-                                  subItems: f.subItems.filter(
-                                    (s) => s.id !== sub.id,
-                                  ),
-                                }))
-                              }
-                            >
-                              Remove
-                            </button>
-                          )}
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <div className="sm:col-span-2">
+                              <label className="text-sm font-semibold text-gray-900">
+                                Title
+                              </label>
+                              <input
+                                value={sub.title}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    subItems: f.subItems.map((s) =>
+                                      s.id === sub.id
+                                        ? { ...s, title: e.target.value }
+                                        : s,
+                                    ),
+                                  }))
+                                }
+                                placeholder="e.g., Lunch at Pandey Niwas"
+                                className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-sm font-semibold text-gray-900">
+                                Start
+                              </label>
+                              <input
+                                value={sub.startTime}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    subItems: f.subItems.map((s) =>
+                                      s.id === sub.id
+                                        ? { ...s, startTime: e.target.value }
+                                        : s,
+                                    ),
+                                  }))
+                                }
+                                placeholder="09:00"
+                                className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-semibold text-gray-900">
+                                End (optional)
+                              </label>
+                              <input
+                                value={sub.endTime}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    subItems: f.subItems.map((s) =>
+                                      s.id === sub.id
+                                        ? { ...s, endTime: e.target.value }
+                                        : s,
+                                    ),
+                                  }))
+                                }
+                                placeholder="10:30"
+                                className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                              />
+                            </div>
+
+                            <div className="sm:col-span-2">
+                              <label className="text-sm font-semibold text-gray-900">
+                                Food menu (comma-separated)
+                              </label>
+                              <input
+                                value={sub.foodMenu}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    subItems: f.subItems.map((s) =>
+                                      s.id === sub.id
+                                        ? { ...s, foodMenu: e.target.value }
+                                        : s,
+                                    ),
+                                  }))
+                                }
+                                placeholder="e.g., Dhindo Set, Dalbhat, Fruit Salad"
+                                className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                              />
+                            </div>
+
+                            <div className="sm:col-span-2">
+                              <label className="text-sm font-semibold text-gray-900">
+                                Google Maps link(s)
+                              </label>
+                              <input
+                                value={sub.mapUrl}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    subItems: f.subItems.map((s) =>
+                                      s.id === sub.id
+                                        ? { ...s, mapUrl: e.target.value }
+                                        : s,
+                                    ),
+                                  }))
+                                }
+                                placeholder="Paste one or more links (use | or new line)"
+                                className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                              />
+                            </div>
+
+                            <div className="sm:col-span-2">
+                              <label className="text-sm font-semibold text-gray-900">
+                                Notes (optional)
+                              </label>
+                              <input
+                                value={sub.note}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    subItems: f.subItems.map((s) =>
+                                      s.id === sub.id
+                                        ? { ...s, note: e.target.value }
+                                        : s,
+                                    ),
+                                  }))
+                                }
+                                placeholder="tickets / what to bring / reminders..."
+                                className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                              />
+                            </div>
+                          </div>
                         </div>
+                      ))}
+                    </div>
+                  </div>
 
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                          <div className="sm:col-span-2">
-                            <label className="text-sm font-semibold text-gray-900">
-                              Title
-                            </label>
-                            <input
-                              value={sub.title}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  subItems: f.subItems.map((s) =>
-                                    s.id === sub.id
-                                      ? { ...s, title: e.target.value }
-                                      : s,
-                                  ),
-                                }))
-                              }
-                              placeholder="e.g., Lunch at Pandey Niwas"
-                              className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-sm font-semibold text-gray-900">
-                              Start
-                            </label>
-                            <input
-                              value={sub.startTime}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  subItems: f.subItems.map((s) =>
-                                    s.id === sub.id
-                                      ? { ...s, startTime: e.target.value }
-                                      : s,
-                                  ),
-                                }))
-                              }
-                              placeholder="09:00"
-                              className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-sm font-semibold text-gray-900">
-                              End (optional)
-                            </label>
-                            <input
-                              value={sub.endTime}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  subItems: f.subItems.map((s) =>
-                                    s.id === sub.id
-                                      ? { ...s, endTime: e.target.value }
-                                      : s,
-                                  ),
-                                }))
-                              }
-                              placeholder="10:30"
-                              className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-2">
-                            <label className="text-sm font-semibold text-gray-900">
-                              Food menu (comma-separated)
-                            </label>
-                            <input
-                              value={sub.foodMenu}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  subItems: f.subItems.map((s) =>
-                                    s.id === sub.id
-                                      ? { ...s, foodMenu: e.target.value }
-                                      : s,
-                                  ),
-                                }))
-                              }
-                              placeholder="e.g., Dhindo Set, Dalbhat, Fruit Salad"
-                              className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-2">
-                            <label className="text-sm font-semibold text-gray-900">
-                              Google Maps link(s)
-                            </label>
-                            <input
-                              value={sub.mapUrl}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  subItems: f.subItems.map((s) =>
-                                    s.id === sub.id
-                                      ? { ...s, mapUrl: e.target.value }
-                                      : s,
-                                  ),
-                                }))
-                              }
-                              placeholder="Paste one or more links (use | or new line)"
-                              className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-2">
-                            <label className="text-sm font-semibold text-gray-900">
-                              Notes (optional)
-                            </label>
-                            <input
-                              value={sub.note}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  subItems: f.subItems.map((s) =>
-                                    s.id === sub.id
-                                      ? { ...s, note: e.target.value }
-                                      : s,
-                                  ),
-                                }))
-                              }
-                              placeholder="tickets / what to bring / reminders..."
-                              className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="md:col-span-2">
+                    <label className="text-sm font-semibold text-gray-900">
+                      Notes to users (optional)
+                    </label>
+                    <input
+                      value={form.note}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, note: e.target.value }))
+                      }
+                      placeholder="General notes for everyone..."
+                      className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                    />
                   </div>
                 </div>
-
-                <div className="md:col-span-2">
-                  <label className="text-sm font-semibold text-gray-900">
-                    Notes to users (optional)
-                  </label>
-                  <input
-                    value={form.note}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, note: e.target.value }))
-                    }
-                    placeholder="General notes for everyone..."
-                    className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                  />
-                </div>
-              </div>
 
                 <div className="mt-4">
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <Button
-                    variant="primary"
-                    onClick={() => savePlan()}
-                    disabled={!session}
-                  >
-                    {editingId ? "Save changes" : "Add item"}
-                  </Button>
-                  {!editingId && (
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Button
-                      variant="ghost"
-                      onClick={() => savePlan({ keepOpen: true })}
+                      variant="primary"
+                      onClick={() => savePlan()}
                       disabled={!session}
                     >
-                      Add another
+                      {editingId ? "Save changes" : "Add item"}
                     </Button>
-                  )}
-                </div>
-                {!session && (
-                  <div className="mt-2 text-xs font-semibold text-red-600">
-                    Login/session required to add/edit plan items.
+                    {!editingId && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => savePlan({ keepOpen: true })}
+                        disabled={!session}
+                      >
+                        Add another
+                      </Button>
+                    )}
                   </div>
-                )}
+                  {!session && (
+                    <div className="mt-2 text-xs font-semibold text-red-600">
+                      Login/session required to add/edit plan items.
+                    </div>
+                  )}
                 </div>
               </Card>
             )}
 
             {/* Schedule list */}
-            <Card>
+            <div>
               <div className="text-lg font-extrabold text-gray-900">
                 Schedule • {dayTitle(activeDay)}
               </div>
@@ -2429,8 +2281,8 @@ export function GroupHome({
                   })}
                 </div>
               )}
-            </Card>
-          </>
+            </div>
+          </div>
         </div>
 
         <div className={tab === "media" ? "" : "hidden"}>
@@ -2687,208 +2539,6 @@ export function GroupHome({
           </Card>
         </div>
 
-        <div className={tab === "reels" ? "" : "hidden"}>
-          <Card>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-lg font-extrabold text-gray-900 tracking-tight">
-                  Reels
-                </div>
-                <p className="mt-1 text-gray-600">
-                  Quick clips in a TikTok-style feed (local-only for now).
-                </p>
-              </div>
-              <div>
-                <input
-                  ref={reelsInputRef}
-                  type="file"
-                  accept="video/*"
-                  className="hidden"
-                  onChange={handleReelFileChange}
-                />
-                <Button variant="primary" onClick={handleAddReel}>
-                  + Create Reel
-                </Button>
-              </div>
-            </div>
-
-            {reelError && (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                {reelError}
-              </div>
-            )}
-
-            {reels.length === 0 && !reelBusy && (
-              <div className="mt-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-sm text-gray-500">
-                No reels yet. Create your first clip.
-              </div>
-            )}
-
-            <div className="mt-6 h-[70vh] overflow-y-auto snap-y snap-mandatory rounded-2xl border border-gray-200 bg-black/5">
-              {reels.map((r) => (
-                <div
-                  key={r.id}
-                  className="relative snap-start h-[70vh] flex items-center justify-center bg-black"
-                >
-                  <video
-                    src={r.videoUrl}
-                    controls
-                    playsInline
-                    loop
-                    className="h-full w-full object-contain"
-                  />
-                  {r.caption && (
-                    <div className="absolute left-4 bottom-4 text-white text-sm font-semibold drop-shadow">
-                      {r.caption}
-                    </div>
-                  )}
-                  <div className="absolute right-3 bottom-4 flex flex-col items-center gap-3 text-white">
-                    <button
-                      type="button"
-                      className="h-10 w-10 rounded-full bg-white/15 backdrop-blur flex items-center justify-center text-sm font-bold"
-                      title="Like"
-                      onClick={async () => {
-                        if (!sessionUserId) return;
-                        const next = await toggleReelLike(
-                          r.id,
-                          sessionUserId,
-                        );
-                        setReels((prev) =>
-                          prev.map((x) =>
-                            x.id === r.id
-                              ? {
-                                  ...x,
-                                  viewerLiked: next,
-                                  likeCount: Math.max(
-                                    0,
-                                    x.likeCount + (next ? 1 : -1),
-                                  ),
-                                }
-                              : x,
-                          ),
-                        );
-                      }}
-                    >
-                      {r.viewerLiked ? "♥" : "♡"}
-                    </button>
-                    <div className="text-xs">{r.likeCount}</div>
-                    <button
-                      type="button"
-                      className="h-10 w-10 rounded-full bg-white/15 backdrop-blur flex items-center justify-center text-sm font-bold"
-                      title="Comment"
-                      onClick={async () => {
-                        if (reelComments[r.id]) {
-                          setReelComments((prev) => {
-                            const next = { ...prev };
-                            delete next[r.id];
-                            return next;
-                          });
-                          return;
-                        }
-                        const list = await getReelComments(r.id);
-                        setReelComments((prev) => ({
-                          ...prev,
-                          [r.id]: list.map((c) => ({
-                            id: c.id,
-                            userId: c.userId,
-                            text: c.text,
-                          })),
-                        }));
-                      }}
-                    >
-                      💬
-                    </button>
-                    <div className="text-xs">{r.commentCount}</div>
-                    <button
-                      type="button"
-                      className="h-10 w-10 rounded-full bg-white/15 backdrop-blur flex items-center justify-center text-sm font-bold"
-                      title="Share"
-                    >
-                      ↗
-                    </button>
-                  </div>
-
-                  {Array.isArray(reelComments[r.id]) && (
-                    <div className="absolute left-3 right-3 bottom-16 rounded-2xl bg-white/90 backdrop-blur p-3 text-gray-900">
-                      <div className="max-h-40 overflow-y-auto space-y-2 text-sm">
-                        {reelComments[r.id].length === 0 && (
-                          <div className="text-gray-500">No comments yet.</div>
-                        )}
-                        {reelComments[r.id].map((c) => (
-                          <div key={c.id} className="border-b border-gray-200 pb-2">
-                            <div className="text-xs text-gray-500">
-                              {c.userId.slice(0, 6)}
-                            </div>
-                            <div>{c.text}</div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          value={reelCommentDraft[r.id] ?? ""}
-                          onChange={(e) =>
-                            setReelCommentDraft((prev) => ({
-                              ...prev,
-                              [r.id]: e.target.value,
-                            }))
-                          }
-                          placeholder="Add a comment"
-                          className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                        />
-                        <Button
-                          variant="primary"
-                          disabled={
-                            !sessionUserId ||
-                            !(reelCommentDraft[r.id] ?? "").trim()
-                          }
-                          onClick={async () => {
-                            if (!sessionUserId) return;
-                            const text = (reelCommentDraft[r.id] ?? "").trim();
-                            if (!text) return;
-                            const created = await addReelComment(
-                              r.id,
-                              sessionUserId,
-                              text,
-                            );
-                            setReelComments((prev) => ({
-                              ...prev,
-                              [r.id]: [
-                                { id: created.id, userId: created.userId, text },
-                                ...(prev[r.id] ?? []),
-                              ],
-                            }));
-                            setReelCommentDraft((prev) => ({
-                              ...prev,
-                              [r.id]: "",
-                            }));
-                            setReels((prev) =>
-                              prev.map((x) =>
-                                x.id === r.id
-                                  ? {
-                                      ...x,
-                                      commentCount: x.commentCount + 1,
-                                    }
-                                  : x,
-                              ),
-                            );
-                          }}
-                        >
-                          Send
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div ref={reelsSentinelRef} className="h-10" />
-              {reelBusy && (
-                <div className="py-4 text-center text-sm text-gray-600">
-                  Loading…
-                </div>
-              )}
-            </div>
-          </Card>
-        </div>
         </main>
 
       </div>
