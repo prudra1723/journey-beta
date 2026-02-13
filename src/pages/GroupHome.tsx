@@ -50,7 +50,7 @@ import { FacilityNotesBox } from "../features/group/components/FacilityNotesBox"
 import { EventNotesBox } from "../features/group/components/EventNotesBox";
 import { readGroupHeaderImage } from "../lib/groupHeaderImage";
 
-type TabKey = "timeline" | "plan" | "media";
+type TabKey = "timeline" | "plan" | "media" | "orders";
 
 const ABOUT_OPTIONS = [
   { value: "", label: "Select type" },
@@ -117,6 +117,16 @@ function MediaIcon() {
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <circle cx="8" cy="10" r="2" />
       <path d="M21 17l-6-6-4 4-2-2-4 4" />
+    </svg>
+  );
+}
+
+function CartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="9" cy="20" r="1.5" />
+      <circle cx="18" cy="20" r="1.5" />
+      <path d="M3 4h2l2.4 10.2a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 1.9-1.4l2-6.4H7.2" />
     </svg>
   );
 }
@@ -348,7 +358,7 @@ export function GroupHome({
       if (!raw) return "timeline";
       const parsed = JSON.parse(raw) as { tab?: TabKey };
       const next = parsed.tab ?? "timeline";
-      return ["timeline", "plan", "media"].includes(next)
+      return ["timeline", "plan", "media", "orders"].includes(next)
         ? (next as TabKey)
         : "timeline";
     } catch {
@@ -429,6 +439,11 @@ export function GroupHome({
   const autoRenamedRef = useRef(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [orderDraft, setOrderDraft] = useState("");
+  const [orderCreated, setOrderCreated] = useState(false);
+  const [orderItems, setOrderItems] = useState<
+    { id: string; label: string; checked: boolean }[]
+  >([]);
 
   function makeSubItem(overrides?: Partial<{
     id: string;
@@ -1270,12 +1285,12 @@ export function GroupHome({
 
             <button
               type="button"
-              className="shrink-0 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-gray-200 bg-white text-[11px] sm:text-sm font-semibold sm:font-extrabold hover:bg-gray-50 w-auto flex items-center justify-center gap-2"
+              className="shrink-0 h-8 w-8 sm:h-auto sm:w-auto px-0 sm:px-3 py-0 sm:py-2 rounded-xl border border-gray-200 bg-white text-[11px] sm:text-sm font-semibold sm:font-extrabold hover:bg-gray-50 flex items-center justify-center gap-2"
               onClick={() => setDrawerOpen(true)}
               title="Menu"
               aria-label="Menu"
             >
-              <span className="text-base">☰</span>
+              <span className="text-sm sm:text-base">☰</span>
               <span className="hidden sm:inline">Menu</span>
             </button>
           </div>
@@ -1306,7 +1321,7 @@ export function GroupHome({
           ].join(" ")}
         >
           <div className="rounded-3xl border border-gray-200 bg-white/90 shadow-soft p-2">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <TabButton
                 active={tab === "timeline"}
                 onClick={() => {
@@ -1321,6 +1336,12 @@ export function GroupHome({
                 onClick={() => setTabAndScroll("plan")}
                 label="Plan"
                 icon={<CalendarIcon />}
+              />
+              <TabButton
+                active={tab === "orders"}
+                onClick={() => setTabAndScroll("orders")}
+                label="Orders"
+                icon={<CartIcon />}
               />
               <TabButton
                 active={tab === "media"}
@@ -2286,6 +2307,135 @@ export function GroupHome({
               )}
             </div>
           </div>
+        </div>
+
+        <div className={tab === "orders" ? "" : "hidden"}>
+          <Card>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="text-lg font-extrabold text-gray-900 tracking-tight">
+                  Order list
+                </div>
+                <p className="mt-1 text-gray-600">
+                  Build a checklist for food, supplies, or tasks.
+                </p>
+              </div>
+              <Button
+                variant="primary"
+                disabled={orderItems.length === 0}
+                onClick={() => setOrderCreated(true)}
+                className="w-full sm:w-auto"
+              >
+                Create order list
+              </Button>
+            </div>
+
+            <div className="mt-4 flex flex-col sm:flex-row gap-2">
+              <input
+                value={orderDraft}
+                onChange={(e) => setOrderDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const text = orderDraft.trim();
+                  if (!text) return;
+                  setOrderItems((prev) => [
+                    ...prev,
+                    {
+                      id: `order_${Date.now()}_${Math.random()
+                        .toString(36)
+                        .slice(2, 7)}`,
+                      label: text,
+                      checked: false,
+                    },
+                  ]);
+                  setOrderDraft("");
+                  setOrderCreated(false);
+                }}
+                placeholder="Add an item (e.g., snacks, water, tickets)"
+                className="flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+              />
+              <Button
+                variant="orange"
+                onClick={() => {
+                  const text = orderDraft.trim();
+                  if (!text) return;
+                  setOrderItems((prev) => [
+                    ...prev,
+                    {
+                      id: `order_${Date.now()}_${Math.random()
+                        .toString(36)
+                        .slice(2, 7)}`,
+                      label: text,
+                      checked: false,
+                    },
+                  ]);
+                  setOrderDraft("");
+                  setOrderCreated(false);
+                }}
+                className="w-full sm:w-auto"
+              >
+                Add item
+              </Button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {orderItems.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+                  No items yet. Add your first item above.
+                </div>
+              )}
+
+              {orderItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3"
+                >
+                  <label className="flex items-center gap-3 text-sm font-semibold text-gray-900">
+                    <input
+                      type="checkbox"
+                      checked={item.checked}
+                      onChange={(e) =>
+                        setOrderItems((prev) =>
+                          prev.map((entry) =>
+                            entry.id === item.id
+                              ? { ...entry, checked: e.target.checked }
+                              : entry,
+                          ),
+                        )
+                      }
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span
+                      className={
+                        item.checked
+                          ? "text-gray-400 line-through"
+                          : "text-gray-900"
+                      }
+                    >
+                      {item.label}
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-red-600 hover:underline"
+                    onClick={() =>
+                      setOrderItems((prev) =>
+                        prev.filter((entry) => entry.id !== item.id),
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {orderCreated && (
+              <div className="mt-3 text-xs font-semibold text-green-700">
+                Order list created. You can keep editing anytime.
+              </div>
+            )}
+          </Card>
         </div>
 
         <div className={tab === "media" ? "" : "hidden"}>
