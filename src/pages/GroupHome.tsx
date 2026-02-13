@@ -546,7 +546,7 @@ export function GroupHome({
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const templateInputRef = useRef<HTMLInputElement | null>(null);
-  const [customHeaderBg, setCustomHeaderBg] = useState<string | null>(() =>
+  const [, setCustomHeaderBg] = useState<string | null>(() =>
     readGroupHeaderImage(groupId),
   );
   const headerBg = null;
