@@ -1,0 +1,859 @@
+// src/lib/appDb.ts
+import { supabase } from "./supabase";
+import { defaultPerms, makeInviteCode, normalizeName } from "./db/utils";
+import type {
+  BetaGroup,
+  BetaUser,
+  PlanDayKey,
+  PlanItem,
+  TimelinePost,
+  TimelineComment,
+} from "./db/types";
+
+const dayOrder: Record<PlanDayKey, number> = {
+  mon: 0,
+  tue: 1,
+  wed: 2,
+  thu: 3,
+  fri: 4,
+  sat: 5,
+  sun: 6,
+};
+
+function assertSupabase() {
+  if (!supabase) {
+    throw new Error("Supabase not configured");
+  }
+  return supabase;
+}
+
+async function mapNamesByIds(ids: string[]) {
+  const client = assertSupabase();
+  if (ids.length === 0) return new Map<string, string>();
+  const unique = Array.from(new Set(ids));
+  const { data, error } = await client
+    .from("profiles")
+    .select("id,display_name")
+    .in("id", unique);
+  if (error) throw error;
+  const map = new Map<string, string>();
+  (data ?? []).forEach((row: any) => {
+    map.set(row.id, row.display_name ?? "Unknown");
+  });
+  return map;
+}
+
+function mapProfile(row: {
+  id: string;
+  display_name: string | null;
+  created_at: string;
+}): BetaUser {
+  return {
+    id: row.id,
+    name: row.display_name ?? "Unknown",
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
+type GroupRow = {
+  id: string;
+  name: string;
+  code: string;
+  created_at: string;
+  permissions: unknown | null;
+};
+
+function mapGroup(row: GroupRow): BetaGroup {
+  return {
+    id: row.id,
+    name: row.name,
+    code: row.code,
+    createdAt: new Date(row.created_at).getTime(),
+    permissions:
+      (row.permissions as BetaGroup["permissions"]) ?? defaultPerms(),
+    members: [],
+  };
+}
+
+/**
+ * NOTE:
+ * This function inserts into profiles without specifying id.
+ * If your profiles.id is the auth user id (common setup), this may fail.
+ * It's not used by your Start flow (you use ensureProfile(userId,...)), so leaving as-is.
+ */
+export async function upsertUserByName(name: string) {
+  const client = assertSupabase();
+  const nameKey = normalizeName(name);
+
+  const { data: existing, error: findErr } = await client
+    .from("profiles")
+    .select("id, display_name, created_at")
+    .eq("name_key", nameKey)
+    .maybeSingle();
+
+  if (findErr) throw findErr;
+
+  if (existing) {
+    return { user: mapProfile(existing) };
+  }
+
+  const { data: created, error: insertErr } = await client
+    .from("profiles")
+    .insert({
+      display_name: name,
+      name_key: nameKey,
+    })
+    .select("id, display_name, created_at")
+    .single();
+
+  if (insertErr) throw insertErr;
+  return { user: mapProfile(created) };
+}
+
+export async function getUserGroups(userId: string): Promise<BetaGroup[]> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("group_members")
+    .select("role,group:groups(id,name,code,created_at,permissions)")
+    .eq("user_id", userId);
+
+  if (error) throw error;
+
+  const rows = (data ?? []) as unknown as Array<{ group: GroupRow | null }>;
+  return rows
+    .map((row) => row.group)
+    .filter((g): g is GroupRow => !!g)
+    .map((g) => mapGroup(g));
+}
+
+export async function getGroup(groupId: string): Promise<BetaGroup | null> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("groups")
+    .select("id,name,code,created_at,permissions")
+    .eq("id", groupId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapGroup(data as GroupRow) : null;
+}
+
+export async function getMyRole(groupId: string, userId: string) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("group_members")
+    .select("role")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.role as "host" | "admin" | "member") ?? "member";
+}
+
+export type GroupMember = {
+  userId: string;
+  role: "host" | "admin" | "member";
+  name: string;
+};
+
+export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("group_members")
+    .select("user_id,role")
+    .eq("group_id", groupId);
+  if (error) throw error;
+
+  type MemberRow = { user_id: string; role: string | null };
+  const rows = (data ?? []) as unknown as MemberRow[];
+  const nameMap = await mapNamesByIds(rows.map((r) => r.user_id));
+
+  return rows.map((row) => ({
+    userId: row.user_id,
+    role: (row.role as "host" | "admin" | "member") ?? "member",
+    name: nameMap.get(row.user_id) ?? "Unknown",
+  }));
+}
+
+export async function addGroupMember(
+  groupId: string,
+  userId: string,
+  role: "admin" | "member" | "host" = "member",
+) {
+  const client = assertSupabase();
+  const uid = userId.trim();
+  if (!uid) throw new Error("User ID required");
+
+  const { data: existing, error: findErr } = await client
+    .from("group_members")
+    .select("id,role")
+    .eq("group_id", groupId)
+    .eq("user_id", uid)
+    .maybeSingle();
+  if (findErr) throw findErr;
+
+  if (existing) {
+    const { error: updateErr } = await client
+      .from("group_members")
+      .update({ role })
+      .eq("group_id", groupId)
+      .eq("user_id", uid);
+    if (updateErr) throw updateErr;
+    return;
+  }
+
+  const { data: newProfile, error: profileErr } = await client
+    .from("profiles")
+    .select("display_name")
+    .eq("id", uid)
+    .maybeSingle();
+  if (profileErr) throw profileErr;
+  const newName = (newProfile as { display_name?: string | null } | null)
+    ?.display_name?.trim();
+
+  if (newName) {
+    const { data: memberRows, error: membersErr } = await client
+      .from("group_members")
+      .select("user_id")
+      .eq("group_id", groupId);
+    if (membersErr) throw membersErr;
+
+    const rows = (memberRows ?? []) as Array<{ user_id: string }>;
+    const nameMap = await mapNamesByIds(rows.map((r) => r.user_id));
+    const newKey = normalizeName(newName);
+    const conflict = rows.some((r) => {
+      if (r.user_id === uid) return false;
+      const existingName = nameMap.get(r.user_id) ?? "";
+      return normalizeName(existingName) === newKey;
+    });
+    if (conflict) {
+      throw new Error(
+        "That name is already used in this group. Please choose another name.",
+      );
+    }
+  }
+
+  const { error } = await client.from("group_members").insert({
+    group_id: groupId,
+    user_id: uid,
+    role,
+  });
+  if (error) throw error;
+}
+
+export async function removeGroupMember(groupId: string, userId: string) {
+  const client = assertSupabase();
+  const { error } = await client
+    .from("group_members")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
+export async function getGroupMeta(groupId: string) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("groups")
+    .select("group_type,description,event_date")
+    .eq("id", groupId)
+    .maybeSingle();
+  if (error) throw error;
+  return {
+    groupType: data?.group_type ?? undefined,
+    description: data?.description ?? undefined,
+    eventDate: data?.event_date ?? undefined,
+  };
+}
+
+export async function getGroupByCode(code: string): Promise<BetaGroup | null> {
+  const client = assertSupabase();
+  const invite = code.trim();
+  if (!invite) throw new Error("Invite code required");
+  const { data, error } = await client
+    .from("groups")
+    .select("id,name,code,created_at,permissions")
+    .eq("code", invite)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapGroup(data as GroupRow) : null;
+}
+
+export async function findMemberByName(
+  groupId: string,
+  name: string,
+): Promise<{ userId: string; name: string } | null> {
+  const client = assertSupabase();
+  const target = normalizeName(name);
+  const { data, error } = await client
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", groupId);
+  if (error) throw error;
+
+  const rows = (data ?? []) as Array<{ user_id: string }>;
+  if (rows.length === 0) return null;
+  const nameMap = await mapNamesByIds(rows.map((r) => r.user_id));
+  for (const row of rows) {
+    const display = nameMap.get(row.user_id) ?? "";
+    if (normalizeName(display) === target) {
+      return { userId: row.user_id, name: display || name };
+    }
+  }
+  return null;
+}
+
+/**
+ * ✅ UPDATED: createGroup
+ * - matches your schema: groups.code (not invite_code)
+ * - retries if code collides (409/23505)
+ * - upserts group_members to avoid duplicate insert conflict
+ */
+export async function createGroup(
+  groupName: string,
+  ownerUserId: string,
+  meta?: { groupType?: string; description?: string; eventDate?: string },
+) {
+  const client = assertSupabase();
+
+  if (!groupName.trim()) throw new Error("Group name required");
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const code = makeInviteCode();
+
+    const { data: group, error: groupErr } = await client
+      .from("groups")
+      .insert({
+        name: groupName.trim(),
+        code, // ✅ your column from CSV
+        group_type: meta?.groupType ?? null,
+        description: meta?.description ?? null,
+        event_date: meta?.eventDate ?? null,
+        permissions: defaultPerms(),
+      })
+      .select("id,name,code,created_at,permissions")
+      .single();
+
+    // Retry on unique conflict (invite code collision)
+    if (
+      groupErr &&
+      ((groupErr as any).code === "23505" || (groupErr as any).status === 409)
+    ) {
+      continue;
+    }
+    if (groupErr) throw groupErr;
+
+    // Avoid upsert: some DBs may not have a unique constraint on (group_id,user_id)
+    const { data: existingMember, error: findMemberErr } = await client
+      .from("group_members")
+      .select("id")
+      .eq("group_id", group.id)
+      .eq("user_id", ownerUserId)
+      .maybeSingle();
+    if (findMemberErr) throw findMemberErr;
+
+    if (!existingMember) {
+      const { error: memberErr } = await client.from("group_members").insert({
+        group_id: group.id,
+        user_id: ownerUserId,
+        role: "host",
+      });
+      if (memberErr) throw memberErr;
+    }
+
+    return mapGroup(group as GroupRow);
+  }
+
+  throw new Error("Could not generate a unique invite code. Try again.");
+}
+
+/**
+ * ✅ UPDATED: joinGroup
+ * - no RPC needed
+ * - finds group by groups.code
+ * - upserts group_members (no duplicates)
+ */
+export async function joinGroup(code: string, userId: string) {
+  const client = assertSupabase();
+  const invite = code.trim();
+  if (!invite) throw new Error("Invite code required");
+
+  const { data: group, error: groupErr } = await client
+    .from("groups")
+    .select("id,name,code,created_at,permissions")
+    .eq("code", invite) // ✅ your column
+    .maybeSingle();
+
+  if (groupErr) throw groupErr;
+  if (!group) return null;
+
+  const { data: meProfile, error: meErr } = await client
+    .from("profiles")
+    .select("display_name")
+    .eq("id", userId)
+    .maybeSingle();
+  if (meErr) throw meErr;
+  const myName = (meProfile as { display_name?: string | null } | null)
+    ?.display_name?.trim();
+
+  if (myName) {
+    const { data: memberRows, error: membersErr } = await client
+      .from("group_members")
+      .select("user_id")
+      .eq("group_id", (group as any).id);
+    if (membersErr) throw membersErr;
+
+    const rows = (memberRows ?? []) as Array<{ user_id: string }>;
+    const nameMap = await mapNamesByIds(rows.map((r) => r.user_id));
+    const myKey = normalizeName(myName);
+    const conflict = rows.some((r) => {
+      if (r.user_id === userId) return false;
+      const existingName = nameMap.get(r.user_id) ?? "";
+      return normalizeName(existingName) === myKey;
+    });
+    if (conflict) {
+      throw new Error(
+        "That name is already used in this group. Please change your name.",
+      );
+    }
+  }
+
+  const { data: existingMember, error: findMemberErr } = await client
+    .from("group_members")
+    .select("id")
+    .eq("group_id", (group as any).id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (findMemberErr) throw findMemberErr;
+
+  if (!existingMember) {
+    const { error: memberErr } = await client.from("group_members").insert({
+      group_id: (group as any).id,
+      user_id: userId,
+      role: "member",
+    });
+    if (memberErr) throw memberErr;
+  }
+
+  return mapGroup(group as GroupRow);
+}
+
+export async function updateGroupMeta(
+  groupId: string,
+  patch: { groupType?: string; description?: string; eventDate?: string },
+) {
+  const client = assertSupabase();
+  const { error } = await client
+    .from("groups")
+    .update({
+      group_type: patch.groupType ?? null,
+      description: patch.description ?? null,
+      event_date: patch.eventDate ?? null,
+    })
+    .eq("id", groupId);
+  if (error) throw error;
+}
+
+export async function updateGroupName(groupId: string, name: string) {
+  const client = assertSupabase();
+  const next = name.trim();
+  if (!next) throw new Error("Group name required");
+  const { error } = await client
+    .from("groups")
+    .update({ name: next })
+    .eq("id", groupId);
+  if (error) throw error;
+}
+
+export async function updateGroupCode(groupId: string, code: string) {
+  const client = assertSupabase();
+  const next = code.trim().toUpperCase().replace(/\s+/g, "");
+  if (!next) throw new Error("Invite code required");
+  if (next.length < 4) throw new Error("Invite code is too short");
+
+  const { data: existing, error: findErr } = await client
+    .from("groups")
+    .select("id")
+    .eq("code", next)
+    .maybeSingle();
+  if (findErr) throw findErr;
+  if (existing && (existing as any).id !== groupId) {
+    throw new Error("That code is already in use.");
+  }
+
+  const { error } = await client
+    .from("groups")
+    .update({ code: next })
+    .eq("id", groupId);
+  if (error) throw error;
+  return next;
+}
+
+export async function getPlan(groupId: string): Promise<PlanItem[]> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("plans")
+    .select(
+      "id,day_key,start_time,end_time,title,note,map_url,created_by,created_at,updated_at,profiles:created_by(display_name)",
+    )
+    .eq("group_id", groupId);
+  if (error) throw error;
+
+  type PlanRow = {
+    id: string;
+    day_key: PlanDayKey;
+    start_time: string;
+    end_time: string | null;
+    title: string;
+    note: string | null;
+    map_url: string | null;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+    profiles?: { display_name: string | null } | null;
+  };
+
+  return ((data ?? []) as unknown as PlanRow[])
+    .map((row) => ({
+      id: row.id,
+      day: row.day_key as PlanDayKey,
+      startTime: row.start_time,
+      endTime: row.end_time ?? undefined,
+      title: row.title,
+      note: row.note ?? undefined,
+      mapUrl: row.map_url ?? undefined,
+      createdBy: {
+        userId: row.created_by,
+        name: row.profiles?.display_name ?? "Unknown",
+      },
+      createdAt: new Date(row.created_at).getTime(),
+      updatedAt: new Date(row.updated_at).getTime(),
+    }))
+    .sort((a, b) => {
+      if (dayOrder[a.day] !== dayOrder[b.day]) {
+        return dayOrder[a.day] - dayOrder[b.day];
+      }
+      return a.startTime.localeCompare(b.startTime);
+    });
+}
+
+export async function addPlanItem(
+  groupId: string,
+  item: Omit<PlanItem, "id" | "createdAt" | "updatedAt">,
+) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("plans")
+    .insert({
+      group_id: groupId,
+      day_key: item.day,
+      start_time: item.startTime,
+      end_time: item.endTime ?? null,
+      title: item.title,
+      note: item.note ?? null,
+      map_url: item.mapUrl ?? null,
+      created_by: item.createdBy.userId,
+    })
+    .select(
+      "id,day_key,start_time,end_time,title,note,map_url,created_by,created_at,updated_at,profiles:created_by(display_name)",
+    )
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updatePlanItem(
+  groupId: string,
+  itemId: string,
+  patch: Partial<Omit<PlanItem, "id" | "createdAt">>,
+) {
+  const client = assertSupabase();
+  const { error } = await client
+    .from("plans")
+    .update({
+      day_key: patch.day,
+      start_time: patch.startTime,
+      end_time: patch.endTime ?? null,
+      title: patch.title,
+      note: patch.note ?? null,
+      map_url: patch.mapUrl ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", itemId)
+    .eq("group_id", groupId);
+  if (error) throw error;
+}
+
+export async function deletePlanItem(groupId: string, itemId: string) {
+  const client = assertSupabase();
+  const { error } = await client
+    .from("plans")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("id", itemId);
+  if (error) throw error;
+}
+
+export async function getTimeline(groupId: string): Promise<TimelinePost[]> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("timeline_posts")
+    .select(
+      "id,group_id,text,image_url,created_by,created_at,profiles:created_by(display_name)",
+    )
+    .eq("group_id", groupId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  type PostRow = {
+    id: string;
+    group_id: string;
+    text: string;
+    image_url: string | null;
+    created_by: string;
+    created_at: string;
+    profiles?: { display_name: string | null } | null;
+  };
+
+  const posts = (data ?? []) as unknown as PostRow[];
+  const postIds = posts.map((p) => p.id);
+
+  const { data: likes } = postIds.length
+    ? await client
+        .from("timeline_likes")
+        .select("post_id,user_id")
+        .in("post_id", postIds)
+    : { data: [] };
+
+  const { data: comments } = postIds.length
+    ? await client
+        .from("timeline_comments")
+        .select(
+          "id,post_id,text,created_at,user_id,profiles:profiles(display_name)",
+        )
+        .in("post_id", postIds)
+    : { data: [] };
+
+  type LikeRow = { post_id: string; user_id: string };
+  type CommentRow = {
+    id: string;
+    post_id: string;
+    text: string;
+    created_at: string;
+    user_id: string;
+    profiles?: { display_name: string | null } | null;
+  };
+
+  const likeRows = (likes ?? []) as unknown as LikeRow[];
+  const commentRows = (comments ?? []) as unknown as CommentRow[];
+
+  return posts.map((row) => {
+    const postLikes = likeRows
+      .filter((l) => l.post_id === row.id)
+      .map((l) => l.user_id);
+
+    const postComments: TimelineComment[] = commentRows
+      .filter((c) => c.post_id === row.id)
+      .map((c) => ({
+        id: c.id,
+        text: c.text,
+        createdAt: new Date(c.created_at).getTime(),
+        createdBy: {
+          userId: c.user_id,
+          name: c.profiles?.display_name ?? "Unknown",
+        },
+      }));
+
+    return {
+      id: row.id,
+      groupId: row.group_id,
+      text: row.text,
+      imageDataUrl: row.image_url ?? undefined,
+      createdAt: new Date(row.created_at).getTime(),
+      createdBy: {
+        userId: row.created_by,
+        name: row.profiles?.display_name ?? "Unknown",
+      },
+      likes: postLikes,
+      comments: postComments,
+    };
+  });
+}
+
+export async function addTimelinePost(
+  groupId: string,
+  payload: {
+    text: string;
+    imageDataUrl?: string;
+    createdBy: { userId: string; name: string };
+  },
+) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("timeline_posts")
+    .insert({
+      group_id: groupId,
+      text: payload.text,
+      image_url: payload.imageDataUrl ?? null,
+      created_by: payload.createdBy.userId,
+    })
+    .select(
+      "id,group_id,text,image_url,created_by,created_at,profiles:created_by(display_name)",
+    )
+    .single();
+
+  if (error) throw error;
+
+  const profiles = data.profiles as
+    | { display_name?: string | null }
+    | Array<{ display_name?: string | null }>
+    | null
+    | undefined;
+
+  const displayName = Array.isArray(profiles)
+    ? profiles[0]?.display_name
+    : profiles?.display_name;
+
+  return {
+    id: data.id,
+    groupId: data.group_id,
+    text: data.text,
+    imageDataUrl: data.image_url ?? undefined,
+    createdAt: new Date(data.created_at).getTime(),
+    createdBy: {
+      userId: data.created_by,
+      name: displayName ?? payload.createdBy.name,
+    },
+    likes: [],
+    comments: [],
+  } as TimelinePost;
+}
+
+export async function updateTimelinePost(
+  postId: string,
+  userId: string,
+  patch: { text?: string; imageDataUrl?: string | null },
+) {
+  const client = assertSupabase();
+  const { error } = await client
+    .from("timeline_posts")
+    .update({
+      text: patch.text ?? null,
+      image_url: patch.imageDataUrl ?? null,
+    })
+    .eq("id", postId)
+    .eq("created_by", userId);
+  if (error) throw error;
+}
+
+export async function toggleLike(postId: string, userId: string) {
+  const client = assertSupabase();
+  const { data: existing, error: findErr } = await client
+    .from("timeline_likes")
+    .select("id")
+    .eq("post_id", postId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (findErr) throw findErr;
+
+  if (existing) {
+    const { error } = await client
+      .from("timeline_likes")
+      .delete()
+      .eq("id", (existing as any).id);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await client.from("timeline_likes").insert({
+    post_id: postId,
+    user_id: userId,
+  });
+  if (error) throw error;
+}
+
+export async function addComment(
+  postId: string,
+  payload: { text: string; createdBy: { userId: string; name: string } },
+) {
+  const client = assertSupabase();
+  const { error } = await client.from("timeline_comments").insert({
+    post_id: postId,
+    user_id: payload.createdBy.userId,
+    text: payload.text,
+  });
+  if (error) throw error;
+}
+
+export async function deletePost(postId: string, userId: string) {
+  const client = assertSupabase();
+  const { error } = await client
+    .from("timeline_posts")
+    .delete()
+    .eq("id", postId)
+    .eq("created_by", userId);
+  if (error) throw error;
+}
+
+export async function readMedia(groupId: string) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("media_items")
+    .select(
+      "id,image_url,visibility,created_by,created_at,profiles:created_by(display_name)",
+    )
+    .eq("group_id", groupId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  type MediaRow = {
+    id: string;
+    image_url: string;
+    visibility: "group" | "private" | "shared" | null;
+    created_by: string;
+    created_at: string;
+    profiles?: { display_name: string | null } | null;
+  };
+
+  return ((data ?? []) as unknown as MediaRow[]).map((row) => ({
+    id: row.id,
+    dataUrl: row.image_url,
+    visibility: row.visibility ?? "group",
+    createdAt: new Date(row.created_at).getTime(),
+    createdBy: {
+      userId: row.created_by,
+      name: row.profiles?.display_name ?? "Unknown",
+    },
+  }));
+}
+
+export async function addMedia(
+  groupId: string,
+  dataUrl: string,
+  createdBy: { userId: string; name: string },
+  visibility: "group" | "private" | "shared" = "group",
+) {
+  const client = assertSupabase();
+  const { error } = await client.from("media_items").insert({
+    group_id: groupId,
+    image_url: dataUrl,
+    visibility,
+    created_by: createdBy.userId,
+  });
+  if (error) throw error;
+}
+
+export async function deleteMedia(
+  groupId: string,
+  mediaId: string,
+  userId: string,
+) {
+  const client = assertSupabase();
+  const { error } = await client
+    .from("media_items")
+    .delete()
+    .eq("id", mediaId)
+    .eq("group_id", groupId)
+    .eq("created_by", userId);
+  if (error) throw error;
+}
