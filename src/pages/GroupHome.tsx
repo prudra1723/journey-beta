@@ -425,6 +425,7 @@ export function GroupHome({
     readGroupHeaderImage(groupId),
   );
   const headerBg = customHeaderBg ?? sydneyBanner;
+  void headerBg;
   const autoRenamedRef = useRef(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
