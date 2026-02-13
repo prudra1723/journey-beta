@@ -11,17 +11,20 @@ import defaultHeaderImage from "../assets/header1.jpg";
 import {
   addMedia,
   addPlanItem,
+  addTimelinePost,
   deleteMedia,
   deletePlanItem,
   getGroup,
   getGroupMeta,
   getMyRole,
   getPlan,
+  getTimeline,
   readMedia,
   updateGroupName,
   updatePlanItem,
 } from "../lib/appDb";
 import { UserAvatar } from "../components/UserAvatar";
+import { loadDb } from "../lib/db/storage";
 import { fileToDataUrl } from "../features/chat/lib/chatUi";
 import {
   readAbout,
@@ -307,11 +310,11 @@ export function GroupHome({
   const [tab, setTab] = useState<TabKey>(() => {
     try {
       const raw = localStorage.getItem(UI_KEY);
-      if (!raw) return "plan";
+      if (!raw) return "timeline";
       const parsed = JSON.parse(raw) as { tab?: TabKey };
-      return parsed.tab ?? "plan";
+      return parsed.tab ?? "timeline";
     } catch {
-      return "plan";
+      return "timeline";
     }
   });
 
@@ -1042,6 +1045,66 @@ export function GroupHome({
     }
   }
 
+  async function importLegacyLocalData() {
+    if (!session) return;
+    const db = loadDb();
+    const codeKey = group?.code?.trim().toUpperCase();
+    const localGroup =
+      db.groups.find(
+        (g) => g.code?.trim().toUpperCase() === codeKey,
+      ) ?? db.groups.find((g) => g.id === groupId);
+    const localGroupId = localGroup?.id ?? groupId;
+
+    const localPlans = db.plans?.[localGroupId] ?? [];
+    const localPosts = db.posts?.filter((p) => p.groupId === localGroupId) ?? [];
+
+    if (localPlans.length === 0 && localPosts.length === 0) {
+      alert("No legacy local data found for this group.");
+      return;
+    }
+
+    const ok = confirm(
+      `Import ${localPlans.length} plan items and ${localPosts.length} timeline posts to cloud?`,
+    );
+    if (!ok) return;
+
+    const existingPlanKey = new Set(
+      planAll.map((p) => `${p.day}|${p.startTime}|${p.title}`),
+    );
+
+    for (const p of localPlans) {
+      const key = `${p.day}|${p.startTime}|${p.title}`;
+      if (existingPlanKey.has(key)) continue;
+      await addPlanItem(groupId, {
+        day: p.day,
+        startTime: p.startTime,
+        endTime: p.endTime ?? undefined,
+        title: p.title,
+        note: p.note ?? undefined,
+        mapUrl: p.mapUrl ?? undefined,
+        createdBy: { userId: session.userId, name: session.name },
+      });
+    }
+
+    const existingPosts = await getTimeline(groupId);
+    const existingPostKey = new Set(
+      existingPosts.map((p) => `${p.text ?? ""}|${p.imageDataUrl ?? ""}`),
+    );
+
+    for (const post of localPosts) {
+      const key = `${post.text ?? ""}|${post.imageDataUrl ?? ""}`;
+      if (existingPostKey.has(key)) continue;
+      await addTimelinePost(groupId, {
+        text: post.text ?? "",
+        imageDataUrl: post.imageDataUrl ?? undefined,
+        createdBy: { userId: session.userId, name: session.name },
+      });
+    }
+
+    setRefresh((x) => x + 1);
+    alert("Legacy local data imported to cloud.");
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-orange-50">
       {/* Header */}
@@ -1233,6 +1296,13 @@ export function GroupHome({
                         className="w-full sm:w-auto"
                       >
                         Sync local → cloud
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={importLegacyLocalData}
+                        className="w-full sm:w-auto"
+                      >
+                        Import legacy local data
                       </Button>
                     </>
                   )}

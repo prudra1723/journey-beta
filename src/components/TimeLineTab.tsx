@@ -1193,7 +1193,7 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
 
                 {/* Like/Comment/Share row */}
                 <div className="mt-3 pt-2 border-t border-gray-200/50">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold">
+                  <div className="grid grid-cols-3 gap-2 text-sm font-semibold sm:flex sm:items-center sm:justify-between">
                     {/* Like */}
                     <button
                       type="button"

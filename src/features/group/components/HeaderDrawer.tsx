@@ -722,8 +722,11 @@ export function HeaderDrawer({
                               const signed = await getSignedStorageUrl(path);
                               saveProfileCover(me.userId, signed);
                               setCover(signed);
-                            } catch {
-                              alert("Could not load image. Try a smaller file.");
+                            } catch (err) {
+                              const msg =
+                                (err as { message?: string })?.message ??
+                                "Could not upload image. Try a smaller file.";
+                              alert(msg);
                             } finally {
                               if (coverRef.current)
                                 coverRef.current.value = "";
@@ -787,10 +790,11 @@ export function HeaderDrawer({
                                 ...p,
                                 displayName: p.displayName ?? me.name,
                               }));
-                            } catch {
-                              alert(
-                                "Could not load image. Try a smaller file.",
-                              );
+                            } catch (err) {
+                              const msg =
+                                (err as { message?: string })?.message ??
+                                "Could not upload image. Try a smaller file.";
+                              alert(msg);
                             } finally {
                               if (fileRef.current)
                                   fileRef.current.value = "";

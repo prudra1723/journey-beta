@@ -5,6 +5,53 @@ const PROFILE_KEY = "journey_beta_profile_v1";
 const AVATAR_BUCKET = "journeyapp";
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
+async function compressImage(
+  file: File,
+  maxSide = 1024,
+  quality = 0.86,
+): Promise<{ blob: Blob; contentType: string; ext: string }> {
+  if (!file.type.startsWith("image/")) {
+    const ext = file.name.split(".").pop() || "jpg";
+    return {
+      blob: file,
+      contentType: file.type || "application/octet-stream",
+      ext,
+    };
+  }
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxDim = Math.max(bitmap.width, bitmap.height);
+    const scale = Math.min(1, maxSide / maxDim);
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas not supported");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+
+    const blob = await new Promise<Blob>((resolve) => {
+      canvas.toBlob(
+        (b) => resolve(b ?? file),
+        "image/jpeg",
+        quality,
+      );
+    });
+
+    return { blob, contentType: "image/jpeg", ext: "jpg" };
+  } catch {
+    const ext = file.name.split(".").pop() || "jpg";
+    return {
+      blob: file,
+      contentType: file.type || "application/octet-stream",
+      ext,
+    };
+  }
+}
+
 export type Profile = {
   avatarDataUrl?: string; // can be signed URL or dataUrl
   coverDataUrl?: string; // can be signed URL or dataUrl
@@ -132,24 +179,24 @@ export async function saveProfileRemote(
 }
 
 export async function uploadProfileAvatar(userId: string, file: File) {
-  const ext = file.name.split(".").pop() || "jpg";
+  const { blob, contentType, ext } = await compressImage(file, 1024, 0.86);
   const path = `avatars/${userId}/avatar.${ext}`;
 
   const { error } = await supabase.storage
     .from(AVATAR_BUCKET)
-    .upload(path, file, { upsert: true, contentType: file.type });
+    .upload(path, blob, { upsert: true, contentType });
 
   if (error) throw error;
   return path;
 }
 
 export async function uploadProfileCover(userId: string, file: File) {
-  const ext = file.name.split(".").pop() || "jpg";
+  const { blob, contentType, ext } = await compressImage(file, 1600, 0.86);
   const path = `covers/${userId}/cover.${ext}`;
 
   const { error } = await supabase.storage
     .from(AVATAR_BUCKET)
-    .upload(path, file, { upsert: true, contentType: file.type });
+    .upload(path, blob, { upsert: true, contentType });
 
   if (error) throw error;
   return path;

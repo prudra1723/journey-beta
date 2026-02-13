@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchProfileRemote, readProfileAvatar } from "../lib/profileDb";
 
 function initials(name?: string) {
@@ -22,13 +22,13 @@ export function UserAvatar({
   const [src, setSrc] = useState<string | null>(() =>
     userId ? readProfileAvatar(userId) ?? null : null,
   );
+  const retriedRef = useRef(false);
 
   useEffect(() => {
     if (!userId) return;
     const cached = readProfileAvatar(userId);
     if (cached) {
       setSrc(cached);
-      return;
     }
     let mounted = true;
     fetchProfileRemote(userId)
@@ -56,6 +56,13 @@ export function UserAvatar({
         className={`rounded-full object-cover ${className}`}
         style={{ width: size, height: size }}
         loading="lazy"
+        onError={() => {
+          if (!userId || retriedRef.current) return;
+          retriedRef.current = true;
+          fetchProfileRemote(userId)
+            .then((p) => setSrc(p.avatarDataUrl ?? null))
+            .catch(() => {});
+        }}
       />
     );
   }
