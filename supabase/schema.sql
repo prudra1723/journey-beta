@@ -19,6 +19,7 @@ create table if not exists groups (
   group_type text,
   description text,
   event_date date,
+  timeline_public boolean default false,
   permissions jsonb,
   created_at timestamptz default now()
 );
@@ -59,6 +60,15 @@ create table if not exists plan_extras (
 create index if not exists plan_extras_group_idx
   on plan_extras (group_id);
 
+create table if not exists order_lists (
+  group_id uuid primary key references groups(id) on delete cascade,
+  items jsonb not null default '[]'::jsonb,
+  is_created boolean not null default false,
+  created_by uuid references profiles(id),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
 create table if not exists timeline_posts (
   id uuid primary key default gen_random_uuid(),
   group_id uuid references groups(id) on delete cascade,
@@ -67,6 +77,17 @@ create table if not exists timeline_posts (
   created_by uuid references profiles(id),
   created_at timestamptz default now()
 );
+
+create table if not exists timeline_images (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid references timeline_posts(id) on delete cascade,
+  image_url text not null,
+  position int not null default 0,
+  created_at timestamptz default now()
+);
+
+create index if not exists timeline_images_post_idx
+  on timeline_images (post_id);
 
 create table if not exists timeline_likes (
   id uuid primary key default gen_random_uuid(),

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { ensureProfile, signInAnonymously } from "../lib/auth";
@@ -37,6 +38,9 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [nameHint, setNameHint] = useState<string | null>(null);
   const [step, setStep] = useState("");
+  const [privacyAck, setPrivacyAck] = useState(false);
+  const [termsAck, setTermsAck] = useState(false);
+  const [cookiesAck, setCookiesAck] = useState(false);
 
   const nameKey = useMemo(() => name.trim().toLowerCase(), [name]);
 
@@ -45,7 +49,10 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
     name.trim().length >= 2 &&
     (mode === "create"
       ? groupName.trim().length >= 2
-      : inviteCode.trim().length >= 4);
+      : inviteCode.trim().length >= 4) &&
+    privacyAck &&
+    termsAck &&
+    cookiesAck;
 
   const withTimeout = async <T,>(p: Promise<T>, label: string) => {
     const timeout = new Promise<never>((_, reject) =>
@@ -280,6 +287,68 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
               >
                 Clear
               </Button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">
+                Privacy, Terms & Cookies
+              </div>
+              <div className="mt-2 space-y-2 text-[11px] text-gray-600">
+                <p>
+                  This app is for testing and group member use only. You can
+                  create or join a group using an invite code.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <Link
+                    to="/privacy"
+                    className="font-semibold text-blue-600 hover:underline"
+                  >
+                    Read Privacy Policy
+                  </Link>
+                  <Link
+                    to="/terms"
+                    className="font-semibold text-blue-600 hover:underline"
+                  >
+                    Read Terms
+                  </Link>
+                  <Link
+                    to="/cookies"
+                    className="font-semibold text-blue-600 hover:underline"
+                  >
+                    Cookies Policy
+                  </Link>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-2 text-xs font-semibold text-gray-700">
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={privacyAck}
+                    onChange={(e) => setPrivacyAck(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>I understand the privacy policy.</span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={termsAck}
+                    onChange={(e) => setTermsAck(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>I agree to the terms and conditions.</span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={cookiesAck}
+                    onChange={(e) => setCookiesAck(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>I acknowledge cookies/local storage usage.</span>
+                </label>
+              </div>
             </div>
 
             {step && (

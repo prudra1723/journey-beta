@@ -6,6 +6,9 @@ import { getSession } from "./lib/session";
 import StartPage from "./pages/StartPage";
 import DashboardPage from "./pages/DashboardPage";
 import GroupHomePage from "./pages/GroupHomePage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import TermsPage from "./pages/TermsPage";
+import CookiesPolicyPage from "./pages/CookiesPolicyPage";
 
 function RequireAuth({ children }: { children: ReactElement }) {
   const s = getSession();
@@ -37,5 +40,8 @@ export const router = createBrowserRouter([
       </RequireAuth>
     ),
   },
+  { path: "/privacy", element: <PrivacyPolicyPage /> },
+  { path: "/terms", element: <TermsPage /> },
+  { path: "/cookies", element: <CookiesPolicyPage /> },
   { path: "*", element: <Navigate to="/" replace /> },
 ]);

@@ -115,6 +115,81 @@ body {
     box-shadow: 0 10px 30px rgba(255, 204, 0, 0.35);
   }
 
+  .media-card-tilt {
+    transform: perspective(900px) rotateX(var(--rx, 0deg))
+      rotateY(var(--ry, 0deg)) translateY(var(--media-raise, 0px))
+      scale(var(--media-scale, 1));
+    transition: transform 180ms ease, box-shadow 180ms ease;
+    will-change: transform;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .media-card-tilt:hover {
+      --media-scale: 1.03;
+      --media-raise: -4px;
+      box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+    }
+
+    .media-card-tilt:hover .media-card-image {
+      transform: scale(1.08);
+    }
+  }
+
+  .media-card-image {
+    transition: transform 320ms ease;
+    will-change: transform;
+  }
+
+  .media-viewer-pop {
+    animation: media-pop 220ms ease;
+  }
+
+  @keyframes media-pop {
+    0% {
+      transform: scale(0.92);
+      opacity: 0;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  .timeline-image-card {
+    background: #f8fafc;
+    transform: translateY(0);
+    transition: transform 180ms ease, box-shadow 180ms ease;
+    animation: timeline-fade 220ms ease;
+  }
+
+  .timeline-image {
+    transition: transform 320ms ease, filter 320ms ease;
+    will-change: transform;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .timeline-image-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
+    }
+
+    .timeline-image-card:hover .timeline-image {
+      transform: scale(1.05);
+      filter: saturate(1.06);
+    }
+  }
+
+  @keyframes timeline-fade {
+    0% {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   .glass {
     background: rgba(255, 255, 255, 0.75);
     backdrop-filter: blur(10px);

@@ -4,6 +4,7 @@ export type GroupMeta = {
   groupType?: string;
   description?: string;
   eventDate?: string; // ISO date string
+  timelinePublic?: boolean;
 };
 
 const KEY = "journey_beta_group_meta_v1";

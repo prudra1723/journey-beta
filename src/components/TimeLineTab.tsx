@@ -10,8 +10,11 @@ import {
   updateTimelinePost,
   deletePost as deletePostApi,
   getTimeline,
+  readTimelineImages,
+  saveTimelineImages,
   toggleLike as toggleLikeApi,
 } from "../lib/betaDb";
+import { uploadImageToR2 } from "../lib/r2Upload";
 
 import { getSession } from "../lib/session";
 
@@ -146,11 +149,11 @@ function SingleImage({
   onPreview: (index: number) => void;
 }) {
   return (
-    <div className="w-full overflow-hidden rounded-2xl border border-gray-200">
+    <div className="w-full overflow-hidden rounded-2xl border border-gray-200 timeline-image-card">
       <img
         src={src}
         alt="post"
-        className="w-full h-[320px] sm:h-[520px] lg:h-[680px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
+        className="w-full h-[320px] sm:h-[520px] lg:h-[680px] object-cover cursor-zoom-in timeline-image"
         loading="lazy"
         onClick={() => onPreview(0)}
       />
@@ -169,12 +172,12 @@ function TwoImages({
       {images.slice(0, 2).map((src, idx) => (
         <div
           key={idx}
-          className="overflow-hidden rounded-2xl border border-gray-200"
+          className="overflow-hidden rounded-2xl border border-gray-200 timeline-image-card"
         >
           <img
             src={src}
             alt={`post-${idx}`}
-            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
+            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
             loading="lazy"
             onClick={() => onPreview(idx)}
           />
@@ -192,29 +195,29 @@ function ThreeImages({
 }) {
   return (
     <div className="grid grid-cols-2 gap-2">
-      <div className="col-span-1 row-span-2 overflow-hidden rounded-2xl border border-gray-200">
+      <div className="col-span-1 row-span-2 overflow-hidden rounded-2xl border border-gray-200 timeline-image-card">
         <img
           src={images[0]}
           alt="post-0"
-          className="w-full h-[380px] sm:h-[528px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
+          className="w-full h-[380px] sm:h-[528px] object-cover cursor-zoom-in timeline-image"
           loading="lazy"
           onClick={() => onPreview(0)}
         />
       </div>
-      <div className="col-span-1 overflow-hidden rounded-2xl border border-gray-200">
+      <div className="col-span-1 overflow-hidden rounded-2xl border border-gray-200 timeline-image-card">
         <img
           src={images[1]}
           alt="post-1"
-          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
+          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
           loading="lazy"
           onClick={() => onPreview(1)}
         />
       </div>
-      <div className="col-span-1 overflow-hidden rounded-2xl border border-gray-200">
+      <div className="col-span-1 overflow-hidden rounded-2xl border border-gray-200 timeline-image-card">
         <img
           src={images[2]}
           alt="post-2"
-          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
+          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
           loading="lazy"
           onClick={() => onPreview(2)}
         />
@@ -234,12 +237,12 @@ function FourImages({
       {images.slice(0, 4).map((src, idx) => (
         <div
           key={idx}
-          className="overflow-hidden rounded-2xl border border-gray-200"
+          className="overflow-hidden rounded-2xl border border-gray-200 timeline-image-card"
         >
           <img
             src={src}
             alt={`post-${idx}`}
-            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
+            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
             loading="lazy"
             onClick={() => onPreview(idx)}
           />
@@ -263,12 +266,12 @@ function ManyImages({
       {firstFour.map((src, idx) => (
         <div
           key={idx}
-          className="overflow-hidden rounded-2xl border border-gray-200 relative"
+          className="overflow-hidden rounded-2xl border border-gray-200 relative timeline-image-card"
         >
           <img
             src={src}
             alt={`post-${idx}`}
-            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
+            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
             loading="lazy"
             onClick={() => onPreview(idx)}
           />
@@ -333,7 +336,17 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-export default function TimelineTab({ groupId }: { groupId: string }) {
+export default function TimelineTab({
+  groupId,
+  onMediaRefresh,
+  canInteract = true,
+  refreshKey,
+}: {
+  groupId: string;
+  onMediaRefresh?: () => void;
+  canInteract?: boolean;
+  refreshKey?: number;
+}) {
   const session = getSession();
 
   const me = useMemo(() => {
@@ -345,6 +358,7 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
 
   const [posts, setPosts] = useState<DbTimelinePost[]>([]);
   const [extra, setExtra] = useState<ExtraDb>(() => loadExtra());
+  const [remoteImages, setRemoteImages] = useState<Record<string, string[]>>({});
   const [timelineError, setTimelineError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -494,8 +508,12 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
     setLoading(true);
     setTimelineError(null);
     try {
-      const list = (await getTimeline(groupId)) as unknown as DbTimelinePost[];
+      const [list, images] = await Promise.all([
+        getTimeline(groupId) as unknown as Promise<DbTimelinePost[]>,
+        readTimelineImages(groupId),
+      ]);
       setPosts(list);
+      setRemoteImages(images);
       setExtra(loadExtra());
     } catch (err) {
       const msg =
@@ -510,18 +528,29 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
   useEffect(() => {
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId]);
+  }, [groupId, refreshKey]);
+
+  async function uploadOrPreview(file: File) {
+    try {
+      return await uploadImageToR2(file, groupId);
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        return await fileToDataUrl(file, 1100, 0.82);
+      }
+      throw err;
+    }
+  }
 
   async function onPickImages(files: FileList | null) {
     if (!files || files.length === 0) return;
     try {
       const urls = await Promise.all(
-        Array.from(files).map((f) => fileToDataUrl(f, 1100, 0.82)),
+        Array.from(files).map((f) => uploadOrPreview(f)),
       );
       setImagePreviews((prev) => [...prev, ...urls]);
       if (fileRef.current) fileRef.current.value = "";
     } catch {
-      alert("Could not load one of the images. Try smaller images.");
+      alert("Could not upload one of the images. Try again.");
     }
   }
 
@@ -533,8 +562,9 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
     setOpenMenuPostId(null);
     setEditingId(post.id);
     setEditText(post.text ?? "");
-    const multi = extra.postImages[post.id] ?? [];
-    const base = multi.length > 0 ? multi : post.imageDataUrl ? [post.imageDataUrl] : [];
+    const multi = remoteImages[post.id] ?? [];
+    const base =
+      multi.length > 0 ? multi : post.imageDataUrl ? [post.imageDataUrl] : [];
     setEditImages(base);
     if (editFileRef.current) editFileRef.current.value = "";
   }
@@ -550,12 +580,12 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
     if (!files || files.length === 0) return;
     try {
       const urls = await Promise.all(
-        Array.from(files).map((f) => fileToDataUrl(f, 1100, 0.82)),
+        Array.from(files).map((f) => uploadOrPreview(f)),
       );
       setEditImages((prev) => [...prev, ...urls]);
       if (editFileRef.current) editFileRef.current.value = "";
     } catch {
-      alert("Could not load one of the images. Try smaller images.");
+      alert("Could not upload one of the images. Try again.");
     }
   }
 
@@ -575,19 +605,19 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
         imageDataUrl: first,
       });
 
-      const db = loadExtra();
-      db.postImages[post.id] = [...editImages];
-      saveExtra(db);
+      await saveTimelineImages(post.id, editImages);
       setExtra(loadExtra());
 
       cancelEdit();
       await reload();
+      onMediaRefresh?.();
     } finally {
       setBusy(false);
     }
   }
 
   async function createPost() {
+    if (!canInteract) return;
     if (!session) return;
     const t = text.trim();
     if (!t && imagePreviews.length === 0) return;
@@ -601,27 +631,28 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
         createdBy: { userId: me.userId, name: me.name },
       });
 
-      const db = loadExtra();
-      db.postImages[created.id] = [...imagePreviews];
-      saveExtra(db);
+      await saveTimelineImages(created.id, imagePreviews);
 
       setText("");
       setImagePreviews([]);
       if (fileRef.current) fileRef.current.value = "";
 
       await reload();
+      onMediaRefresh?.();
     } finally {
       setBusy(false);
     }
   }
 
   async function toggleLike(postId: string) {
+    if (!canInteract) return;
     if (!session) return;
     await toggleLikeApi(postId, me.userId);
     await reload();
   }
 
   async function addComment(postId: string) {
+    if (!canInteract) return;
     if (!session) return;
     const t = (commentDrafts[postId] ?? "").trim();
     if (!t) return;
@@ -645,11 +676,11 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
     await deletePostApi(post.id, me.userId);
 
     const db = loadExtra();
-    delete db.postImages[post.id];
     delete db.shareCounts[post.id];
     saveExtra(db);
 
     await reload();
+    onMediaRefresh?.();
   }
 
   function toggleCommentReaction(
@@ -657,6 +688,7 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
     commentId: string,
     emoji: string,
   ) {
+    if (!canInteract) return;
     const db = loadExtra();
     const key = kOf(postId, commentId);
 
@@ -673,6 +705,7 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
   }
 
   function addReply(postId: string, commentId: string) {
+    if (!canInteract) return;
     if (!session) return;
     const key = kOf(postId, commentId);
     const t = (replyDrafts[key] ?? "").trim();
@@ -740,80 +773,89 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
         </Card>
       )}
       {/* Composer */}
-      <Card>
-        <div className="flex items-start gap-3">
-          <UserAvatar userId={me.userId} name={me.name} size={40} />
-          <div className="flex-1">
-            <div className="text-lg font-extrabold text-gray-900">Timeline</div>
-            <p className="mt-1 text-gray-600">
-              Post a status. Add multiple photos. Everyone can comment.
-            </p>
+      {canInteract ? (
+        <Card>
+          <div className="flex items-start gap-3">
+            <UserAvatar userId={me.userId} name={me.name} size={40} />
+            <div className="flex-1">
+              <div className="text-lg font-extrabold text-gray-900">Timeline</div>
+              <p className="mt-1 text-gray-600">
+                Post a status. Add multiple photos. Everyone can comment.
+              </p>
 
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="What's the plan?"
-              className="mt-3 w-full min-h-[110px] rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-            />
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="What's the plan?"
+                className="mt-3 w-full min-h-[110px] rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+              />
 
-            {imagePreviews.length > 0 && (
-              <div className="mt-3">
-                <div className="text-sm font-semibold text-gray-700 mb-2">
-                  Selected photos • {imagePreviews.length}
+              {imagePreviews.length > 0 && (
+                <div className="mt-3">
+                  <div className="text-sm font-semibold text-gray-700 mb-2">
+                    Selected photos • {imagePreviews.length}
+                  </div>
+                  <ImageDisplay
+                    images={imagePreviews}
+                    onPreview={(index) => {
+                      setPreviewImages(imagePreviews);
+                      setPreviewIndex(index);
+                    }}
+                  />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {imagePreviews.map((_, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => removePreview(idx)}
+                        className="px-3 py-1 rounded-lg border border-gray-300 bg-white text-xs font-medium hover:bg-gray-50"
+                      >
+                        Remove photo {idx + 1}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <ImageDisplay
-                  images={imagePreviews}
-                  onPreview={(index) => {
-                    setPreviewImages(imagePreviews);
-                    setPreviewIndex(index);
-                  }}
-                />
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {imagePreviews.map((_, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => removePreview(idx)}
-                      className="px-3 py-1 rounded-lg border border-gray-300 bg-white text-xs font-medium hover:bg-gray-50"
-                    >
-                      Remove photo {idx + 1}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
 
-            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2">
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  id="timeline_images"
-                  className="hidden"
-                  onChange={(e) => onPickImages(e.target.files)}
-                />
-                <label
-                  htmlFor="timeline_images"
-                  className="px-4 py-2 rounded-2xl border border-gray-200 bg-white text-sm font-semibold hover:bg-gray-50 shadow-soft cursor-pointer"
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    id="timeline_images"
+                    className="hidden"
+                    onChange={(e) => onPickImages(e.target.files)}
+                  />
+                  <label
+                    htmlFor="timeline_images"
+                    className="px-4 py-2 rounded-2xl border border-gray-200 bg-white text-sm font-semibold hover:bg-gray-50 shadow-soft cursor-pointer"
+                  >
+                    + Add photos
+                  </label>
+                </div>
+
+                <Button
+                  variant="primary"
+                  onClick={createPost}
+                  disabled={busy || (!text.trim() && imagePreviews.length === 0)}
+                  className="w-full sm:w-auto"
                 >
-                  + Add photos
-                </label>
+                  {busy ? "Posting…" : "Post"}
+                </Button>
               </div>
-
-              <Button
-                variant="primary"
-                onClick={createPost}
-                disabled={busy || (!text.trim() && imagePreviews.length === 0)}
-                className="w-full sm:w-auto"
-              >
-                {busy ? "Posting…" : "Post"}
-              </Button>
             </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+      ) : (
+        <Card>
+          <div className="text-sm text-gray-600">
+            Public timeline is enabled. Only group members can post, comment, or
+            like.
+          </div>
+        </Card>
+      )}
 
       {/* Feed */}
       {posts.length === 0 ? (
@@ -828,7 +870,7 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
           {posts.map((p) => {
             const liked = (p.likes ?? []).includes(me.userId);
 
-            const multi = extra.postImages[p.id] ?? [];
+            const multi = remoteImages[p.id] ?? [];
             const images =
               multi.length > 0 ? multi : p.imageDataUrl ? [p.imageDataUrl] : [];
 
@@ -1213,6 +1255,7 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
                         }))
                       }
                       placeholder="Write a comment…"
+                      disabled={!canInteract}
                       className="w-full flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
@@ -1224,7 +1267,9 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
                     <Button
                       variant="primary"
                       onClick={() => addComment(p.id)}
-                      disabled={!(commentDrafts[p.id] ?? "").trim()}
+                      disabled={
+                        !canInteract || !(commentDrafts[p.id] ?? "").trim()
+                      }
                       className="w-full sm:w-auto"
                     >
                       Send
@@ -1250,11 +1295,13 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
                     <button
                       type="button"
                       onClick={() => toggleLike(p.id)}
+                      disabled={!canInteract}
                       className={[
                         "flex items-center justify-center gap-1 px-2 py-2 rounded-xl transition hover:bg-gray-50 w-full sm:w-auto",
                         liked
                           ? "text-blue-600"
                           : "text-gray-600 hover:text-blue-600",
+                        !canInteract ? "opacity-60 cursor-not-allowed" : "",
                       ].join(" ")}
                     >
                       <span className="text-lg">{liked ? "❤️" : "🤍"}</span>
@@ -1264,7 +1311,9 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
                     {/* Comment */}
                     <button
                       type="button"
+                      disabled={!canInteract}
                       onClick={() => {
+                        if (!canInteract) return;
                         const el = document.getElementById(`cbox-${p.id}`);
                         el?.scrollIntoView({
                           behavior: "smooth",
@@ -1272,7 +1321,10 @@ export default function TimelineTab({ groupId }: { groupId: string }) {
                         });
                         (el as HTMLInputElement | null)?.focus?.();
                       }}
-                      className="flex items-center justify-center gap-1 px-2 py-2 rounded-xl text-gray-600 hover:text-blue-600 hover:bg-gray-50 transition w-full sm:w-auto"
+                      className={[
+                        "flex items-center justify-center gap-1 px-2 py-2 rounded-xl text-gray-600 hover:text-blue-600 hover:bg-gray-50 transition w-full sm:w-auto",
+                        !canInteract ? "opacity-60 cursor-not-allowed" : "",
+                      ].join(" ")}
                     >
                       <span className="text-lg">💬</span>
                       <span>Comment</span>

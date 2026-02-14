@@ -10,8 +10,6 @@ import navIcon from "../assets/nav-icon.svg";
 import sydneyBanner from "../assets/Sydney_Harbour_Banner.jpg";
 import {
   addMedia,
-  addMediaComment,
-  addMediaCommentReply,
   addPlanItem,
   addTimelinePost,
   deleteMedia,
@@ -22,12 +20,20 @@ import {
   getPlan,
   getTimeline,
   readMedia,
+  readOrderList,
+  readTimelineImages,
+  saveOrderList,
+  saveTimelineImages,
+  subscribeOrderList,
+  updateMediaImage,
   updateGroupName,
   updatePlanItem,
+  updateTimelinePost,
 } from "../lib/appDb";
 import { UserAvatar } from "../components/UserAvatar";
 import { loadDb } from "../lib/db/storage";
 import { fileToDataUrl } from "../features/chat/lib/chatUi";
+import { uploadImageToR2 } from "../lib/r2Upload";
 import {
   readAbout,
   readMenuText,
@@ -81,14 +87,14 @@ function TabButton({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={[
-        "flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-2xl border text-[11px] sm:text-xs font-semibold transition w-full",
+        "flex flex-col items-center justify-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-2xl border text-[9px] sm:text-xs font-semibold transition w-full",
         active
           ? "bg-blue-600 border-blue-600 text-white shadow-soft"
           : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50",
       ].join(" ")}
     >
-      <span className="text-lg sm:text-xl">{icon}</span>
-      <span>{label}</span>
+      <span className="text-base sm:text-xl">{icon}</span>
+      <span className="leading-tight whitespace-nowrap">{label}</span>
     </button>
   );
 }
@@ -341,14 +347,19 @@ export function GroupHome({
     groupType?: string;
     description?: string;
     eventDate?: string;
+    timelinePublic?: boolean;
   }>({});
-  const [myRole, setMyRole] = useState<"host" | "admin" | "member">("member");
+  const [myRole, setMyRole] = useState<
+    "host" | "admin" | "member" | "viewer"
+  >("viewer");
   const [loadingGroup, setLoadingGroup] = useState(true);
   const [groupError, setGroupError] = useState<string | null>(null);
 
   const session = getSession();
   const sessionUserId = session?.userId ?? null;
   const me = session ? { userId: session.userId, name: session.name } : null;
+  const canManageGroup = myRole === "host" || myRole === "admin";
+  const isViewer = myRole === "viewer";
 
   const UI_KEY = `journey_beta_group_ui_v1:${groupId}`;
 
@@ -372,6 +383,12 @@ export function GroupHome({
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }
+
+  useEffect(() => {
+    if (isViewer && tab !== "timeline") {
+      setTab("timeline");
+    }
+  }, [isViewer, tab]);
 
 
   const [activeDay, setActiveDay] = useState<PlanDayKey>(() => {
@@ -409,6 +426,8 @@ export function GroupHome({
 
   const [refresh, setRefresh] = useState(0);
   void refresh;
+  const [timelineVersion, setTimelineVersion] = useState(0);
+  void timelineVersion;
 
   const [metaVersion, setMetaVersion] = useState(0);
   void metaVersion;
@@ -444,6 +463,88 @@ export function GroupHome({
   const [orderItems, setOrderItems] = useState<
     { id: string; label: string; checked: boolean }[]
   >([]);
+  const [orderLoaded, setOrderLoaded] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const orderSyncRef = useRef<string>("");
+
+  useEffect(() => {
+    let mounted = true;
+    const loadOrders = async () => {
+      if (!me) {
+        if (mounted) {
+          setOrderError("Login required to view the order list.");
+          setOrderLoaded(true);
+        }
+        return;
+      }
+      try {
+        const res = await readOrderList(groupId);
+        if (!mounted) return;
+        setOrderItems(res.items);
+        setOrderCreated(res.created || res.items.length > 0);
+        orderSyncRef.current = JSON.stringify({
+          created: res.created || res.items.length > 0,
+          items: res.items,
+        });
+        setOrderError(null);
+      } catch (err) {
+        const msg =
+          (err as { message?: string })?.message ??
+          "Could not load order list.";
+        if (mounted) setOrderError(msg);
+      } finally {
+        if (mounted) setOrderLoaded(true);
+      }
+    };
+    void loadOrders();
+    return () => {
+      mounted = false;
+    };
+  }, [groupId, me]);
+
+  useEffect(() => {
+    if (!orderLoaded || !me) return;
+    const payload = JSON.stringify({
+      created: orderCreated,
+      items: orderItems,
+    });
+    if (payload === orderSyncRef.current) return;
+    const timer = window.setTimeout(() => {
+      saveOrderList(groupId, orderItems, orderCreated, me.userId)
+        .then(() => {
+          orderSyncRef.current = payload;
+        })
+        .catch((err) => {
+          const msg =
+            (err as { message?: string })?.message ??
+            "Could not save order list.";
+          setOrderError(msg);
+        });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [orderLoaded, orderItems, orderCreated, groupId, me]);
+
+  useEffect(() => {
+    if (!me) return;
+    const unsubscribe = subscribeOrderList(groupId, async () => {
+      try {
+        const res = await readOrderList(groupId);
+        setOrderItems(res.items);
+        setOrderCreated(res.created || res.items.length > 0);
+        orderSyncRef.current = JSON.stringify({
+          created: res.created || res.items.length > 0,
+          items: res.items,
+        });
+        setOrderError(null);
+      } catch (err) {
+        const msg =
+          (err as { message?: string })?.message ??
+          "Could not sync order list.";
+        setOrderError(msg);
+      }
+    });
+    return unsubscribe;
+  }, [groupId, me]);
 
   function makeSubItem(overrides?: Partial<{
     id: string;
@@ -494,11 +595,13 @@ export function GroupHome({
   const planForDay = planAll.filter((x) => x.day === activeDay);
   const [planError, setPlanError] = useState<string | null>(null);
   const [mediaItems, setMediaItems] = useState<
-    {
+    Array<{
       id: string;
       dataUrl: string;
-      visibility: "group" | "private" | "shared";
+      createdAt: number;
       createdBy: { userId: string; name: string };
+      source: "media" | "timeline";
+      visibility?: "group" | "private" | "shared";
       comments?: Array<{
         id: string;
         text: string;
@@ -511,7 +614,10 @@ export function GroupHome({
           createdBy: { userId: string; name: string };
         }>;
       }>;
-    }[]
+      postId?: string;
+      postImages?: string[];
+      imageIndex?: number;
+    }>
   >([]);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [mediaVisibility, setMediaVisibility] = useState<
@@ -520,17 +626,40 @@ export function GroupHome({
   const [showForm, setShowForm] = useState(false);
   const [showPlanSettings, setShowPlanSettings] = useState(false);
   const planSettingsRef = useRef<HTMLDivElement | null>(null);
-  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [mediaViewerOpen, setMediaViewerOpen] = useState(false);
+  const [mediaViewerIndex, setMediaViewerIndex] = useState(0);
+  const [mediaViewerZoom, setMediaViewerZoom] = useState(false);
+  const [mediaMenuOpenId, setMediaMenuOpenId] = useState<string | null>(null);
+  const mediaTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const mediaTouchDeltaRef = useRef<{ x: number; y: number } | null>(null);
+  const mediaEditRef = useRef<HTMLInputElement | null>(null);
+  const [mediaEditTarget, setMediaEditTarget] = useState<
+    | {
+        id: string;
+        source: "media" | "timeline";
+        postId?: string;
+        postImages?: string[];
+        imageIndex?: number;
+        createdBy: { userId: string; name: string };
+      }
+    | null
+  >(null);
+  const timelineMigrateRef = useRef<Record<string, boolean>>({});
   const [navPinned, setNavPinned] = useState(false);
-  const [mediaCommentDrafts, setMediaCommentDrafts] = useState<
-    Record<string, string>
-  >({});
-  const [mediaReplyDrafts, setMediaReplyDrafts] = useState<
-    Record<string, string>
-  >({});
-  const [mediaReplyOpen, setMediaReplyOpen] = useState<
-    Record<string, boolean>
-  >({});
+
+  useEffect(() => {
+    if (!mediaMenuOpenId) return;
+    const handleClick = () => setMediaMenuOpenId(null);
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMediaMenuOpenId(null);
+    };
+    window.addEventListener("click", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [mediaMenuOpenId]);
   const [exploreTypeBySub, setExploreTypeBySub] = useState<
     Record<string, (typeof EXPLORE_OPTIONS)[number]["value"]>
   >({});
@@ -552,6 +681,153 @@ export function GroupHome({
   const [openPlanMenuId, setOpenPlanMenuId] = useState<string | null>(null);
   const [extrasVersion, setExtrasVersion] = useState(0);
   void extrasVersion;
+
+  async function dataUrlToFile(dataUrl: string, name: string) {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    return new File([blob], name, { type: blob.type || "image/jpeg" });
+  }
+
+  async function migrateTimelineImages(
+    postId: string,
+    postOwnerId: string,
+    urls: string[],
+  ) {
+    if (!me || me.userId !== postOwnerId) return;
+    if (timelineMigrateRef.current[postId]) return;
+    timelineMigrateRef.current[postId] = true;
+    try {
+      const uploaded: string[] = [];
+      for (const url of urls) {
+        if (url.startsWith("data:")) {
+          const file = await dataUrlToFile(
+            url,
+            `timeline-${postId}-${Date.now()}.jpg`,
+          );
+          const remote = await uploadImageToR2(file, groupId);
+          uploaded.push(remote);
+        } else {
+          uploaded.push(url);
+        }
+      }
+      await saveTimelineImages(postId, uploaded);
+      if (uploaded[0]) {
+        await updateTimelinePost(postId, me.userId, { imageDataUrl: uploaded[0] });
+      }
+      setMediaVersion((v) => v + 1);
+    } catch {
+      // ignore migration errors
+    }
+  }
+
+  async function shareMediaLink(url: string) {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Journey media", url });
+        return;
+      }
+    } catch {
+      // ignore share errors
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      alert("Link copied.");
+    } catch {
+      alert("Copy failed. Try again.");
+    }
+  }
+
+  async function repostToTimeline(imageUrl: string) {
+    if (!me) {
+      alert("Login required to post.");
+      return;
+    }
+    try {
+      await addTimelinePost(groupId, {
+        text: "",
+        imageDataUrl: imageUrl,
+        createdBy: { userId: me.userId, name: me.name },
+      });
+      setTimelineVersion((v) => v + 1);
+      setMediaVersion((v) => v + 1);
+    } catch {
+      alert("Could not repost to timeline.");
+    }
+  }
+
+  function openMediaViewer(index: number) {
+    setMediaViewerIndex(index);
+    setMediaViewerZoom(false);
+    setMediaViewerOpen(true);
+  }
+
+  function closeMediaViewer() {
+    setMediaViewerOpen(false);
+    setMediaViewerZoom(false);
+  }
+
+  function mediaViewerPrev() {
+    if (mediaItems.length === 0) return;
+    setMediaViewerIndex((prev) =>
+      prev === 0 ? mediaItems.length - 1 : prev - 1,
+    );
+  }
+
+  function mediaViewerNext() {
+    if (mediaItems.length === 0) return;
+    setMediaViewerIndex((prev) =>
+      prev === mediaItems.length - 1 ? 0 : prev + 1,
+    );
+  }
+
+  function handleMediaTouchStart(e: React.TouchEvent) {
+    if (mediaViewerZoom) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    mediaTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    mediaTouchDeltaRef.current = null;
+  }
+
+  function handleMediaTouchMove(e: React.TouchEvent) {
+    if (mediaViewerZoom) return;
+    const touch = e.touches[0];
+    const start = mediaTouchStartRef.current;
+    if (!touch || !start) return;
+    mediaTouchDeltaRef.current = {
+      x: touch.clientX - start.x,
+      y: touch.clientY - start.y,
+    };
+  }
+
+  function handleMediaTouchEnd() {
+    if (mediaViewerZoom) return;
+    const delta = mediaTouchDeltaRef.current;
+    if (!delta) return;
+    const threshold = 40;
+    if (Math.abs(delta.x) > Math.abs(delta.y) && Math.abs(delta.x) > threshold) {
+      if (delta.x > 0) mediaViewerPrev();
+      else mediaViewerNext();
+    }
+    mediaTouchStartRef.current = null;
+    mediaTouchDeltaRef.current = null;
+  }
+
+  function handleCardTiltMove(e: React.MouseEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const rx = ((y / rect.height) - 0.5) * -10;
+    const ry = ((x / rect.width) - 0.5) * 10;
+    el.style.setProperty("--rx", `${rx}deg`);
+    el.style.setProperty("--ry", `${ry}deg`);
+  }
+
+  function handleCardTiltLeave(e: React.MouseEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    el.style.setProperty("--rx", "0deg");
+    el.style.setProperty("--ry", "0deg");
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -668,6 +944,13 @@ export function GroupHome({
   }, [planAll, activeDay]);
 
   useEffect(() => {
+    if (!mediaViewerOpen) return;
+    if (mediaViewerIndex >= mediaItems.length) {
+      setMediaViewerIndex(0);
+    }
+  }, [mediaItems.length, mediaViewerIndex, mediaViewerOpen]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const el = headerRef.current;
     if (!el) return;
@@ -714,9 +997,56 @@ export function GroupHome({
     let mounted = true;
     async function loadMedia() {
       try {
-        const list = await readMedia(groupId);
+        const [mediaList, timelineList, timelineImages] = await Promise.all([
+          readMedia(groupId),
+          getTimeline(groupId),
+          readTimelineImages(groupId),
+        ]);
+        const localExtras = (() => {
+          try {
+            const raw = localStorage.getItem("journey_beta_timeline_extra_v1");
+            if (!raw) return {};
+            const parsed = JSON.parse(raw) as { postImages?: Record<string, string[]> };
+            return parsed.postImages ?? {};
+          } catch {
+            return {};
+          }
+        })();
+
+        const timelineGallery = timelineList.flatMap((post) => {
+          const urls =
+            timelineImages[post.id] ??
+            localExtras[post.id] ??
+            (post.imageDataUrl ? [post.imageDataUrl] : []);
+          if (
+            urls.length > 0 &&
+            !timelineImages[post.id] &&
+            !isViewer &&
+            me?.userId === post.createdBy.userId
+          ) {
+            void migrateTimelineImages(post.id, post.createdBy.userId, urls);
+          }
+          if (urls.length === 0) return [];
+          return urls.map((url, index) => ({
+            id: `timeline:${post.id}:${index}`,
+            dataUrl: url,
+            createdAt: post.createdAt,
+            createdBy: post.createdBy,
+            source: "timeline" as const,
+            postId: post.id,
+            postImages: urls,
+            imageIndex: index,
+          }));
+        });
+        const mediaGallery = mediaList.map((item) => ({
+          ...item,
+          source: "media" as const,
+        }));
+        const combined = [...mediaGallery, ...timelineGallery].sort(
+          (a, b) => b.createdAt - a.createdAt,
+        );
         if (!mounted) return;
-        setMediaItems(list);
+        setMediaItems(combined);
         setMediaError(null);
       } catch (err) {
         const msg =
@@ -1320,8 +1650,13 @@ export function GroupHome({
             navPinned ? "journey-tabbar--pinned" : "journey-tabbar--below",
           ].join(" ")}
         >
-          <div className="rounded-3xl border border-gray-200 bg-white/90 shadow-soft p-2">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="rounded-3xl border border-gray-200 bg-white/90 shadow-soft p-1 sm:p-2">
+            <div
+              className={[
+                "grid gap-1 sm:gap-2",
+                isViewer ? "grid-cols-1" : "grid-cols-4",
+              ].join(" ")}
+            >
               <TabButton
                 active={tab === "timeline"}
                 onClick={() => {
@@ -1331,31 +1666,40 @@ export function GroupHome({
                 label="Home"
                 icon={<HomeIcon />}
               />
-              <TabButton
-                active={tab === "plan"}
-                onClick={() => setTabAndScroll("plan")}
-                label="Plan"
-                icon={<CalendarIcon />}
-              />
-              <TabButton
-                active={tab === "orders"}
-                onClick={() => setTabAndScroll("orders")}
-                label="Orders"
-                icon={<CartIcon />}
-              />
-              <TabButton
-                active={tab === "media"}
-                onClick={() => setTabAndScroll("media")}
-                label="Media"
-                icon={<MediaIcon />}
-              />
+              {!isViewer && (
+                <>
+                  <TabButton
+                    active={tab === "plan"}
+                    onClick={() => setTabAndScroll("plan")}
+                    label="Plan"
+                    icon={<CalendarIcon />}
+                  />
+                  <TabButton
+                    active={tab === "orders"}
+                    onClick={() => setTabAndScroll("orders")}
+                    label="Orders"
+                    icon={<CartIcon />}
+                  />
+                  <TabButton
+                    active={tab === "media"}
+                    onClick={() => setTabAndScroll("media")}
+                    label="Media"
+                    icon={<MediaIcon />}
+                  />
+                </>
+              )}
             </div>
           </div>
         </div>
 
         <main className="mx-auto w-[95%] max-w-6xl py-6 space-y-6">
         <div className={tab === "timeline" ? "-mt-2 sm:-mt-4" : "hidden"}>
-          <TimelineTab groupId={groupId} />
+          <TimelineTab
+            groupId={groupId}
+            onMediaRefresh={() => setMediaVersion((v) => v + 1)}
+            canInteract={!isViewer}
+            refreshKey={timelineVersion}
+          />
         </div>
 
         <div className={tab === "plan" ? "" : "hidden"}>
@@ -1407,7 +1751,7 @@ export function GroupHome({
                       + Add item
                     </Button>
                   )}
-                  {myRole !== "member" && (
+                  {canManageGroup && (
                     <div className="w-full sm:w-auto relative" ref={planSettingsRef}>
                       <input
                         ref={templateInputRef}
@@ -2319,6 +2663,16 @@ export function GroupHome({
                 <p className="mt-1 text-gray-600">
                   Build a checklist for food, supplies, or tasks.
                 </p>
+                {orderError && (
+                  <div className="mt-2 text-xs font-semibold text-red-600">
+                    {orderError}
+                  </div>
+                )}
+                {!orderLoaded && !orderError && (
+                  <div className="mt-2 text-xs font-semibold text-gray-500">
+                    Loading order list…
+                  </div>
+                )}
               </div>
               <Button
                 variant="primary"
@@ -2477,19 +2831,74 @@ export function GroupHome({
                     if (files.length === 0) return;
                     for (const f of files) {
                       try {
-                        const dataUrl = await fileToDataUrl(f, 1400, 0.86);
+                        const imageUrl = await uploadImageToR2(f, groupId);
                         await addMedia(
                           groupId,
-                          dataUrl,
+                          imageUrl,
                           { userId: me.userId, name: me.name },
                           mediaVisibility,
                         );
                       } catch {
-                        // ignore bad images
+                        if (import.meta.env.DEV) {
+                          try {
+                            const dataUrl = await fileToDataUrl(f, 1400, 0.86);
+                            await addMedia(
+                              groupId,
+                              dataUrl,
+                              { userId: me.userId, name: me.name },
+                              mediaVisibility,
+                            );
+                          } catch {
+                            alert("Could not upload this image.");
+                          }
+                        } else {
+                          alert("Could not upload this image.");
+                        }
                       }
                     }
                     if (mediaInputRef.current) mediaInputRef.current.value = "";
                     setMediaVersion((v) => v + 1);
+                  }}
+                />
+                <input
+                  ref={mediaEditRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file || !mediaEditTarget || !me) return;
+                    try {
+                      const imageUrl = await uploadImageToR2(file, groupId);
+                      if (mediaEditTarget.source === "media") {
+                        await updateMediaImage(
+                          mediaEditTarget.id,
+                          me.userId,
+                          imageUrl,
+                        );
+                      } else if (
+                        mediaEditTarget.postId &&
+                        mediaEditTarget.postImages
+                      ) {
+                        const next = [...mediaEditTarget.postImages];
+                        const idx = mediaEditTarget.imageIndex ?? 0;
+                        next[idx] = imageUrl;
+                        await saveTimelineImages(mediaEditTarget.postId, next);
+                        if (idx === 0) {
+                          await updateTimelinePost(
+                            mediaEditTarget.postId,
+                            me.userId,
+                            { imageDataUrl: imageUrl },
+                          );
+                        }
+                      }
+                      setMediaVersion((v) => v + 1);
+                    } catch {
+                      alert("Could not update this image.");
+                    } finally {
+                      if (mediaEditRef.current) mediaEditRef.current.value = "";
+                      setMediaEditTarget(null);
+                    }
                   }}
                 />
                 <Button
@@ -2504,171 +2913,152 @@ export function GroupHome({
             </div>
 
             <div className="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-              {mediaItems.map((m) => {
-                const canDelete = me?.userId === m.createdBy.userId;
-                const comments = m.comments ?? [];
+              {mediaItems.map((m, index) => {
+                const canEdit = me?.userId === m.createdBy.userId;
+                const canDelete = m.source === "media" && canEdit;
                 return (
                   <div
                     key={m.id}
-                    className="rounded-3xl border border-gray-200 bg-white overflow-hidden shadow-soft flex flex-col"
+                    className="group rounded-3xl border border-gray-200 bg-white overflow-hidden shadow-soft flex flex-col media-card-tilt"
+                    onMouseMove={handleCardTiltMove}
+                    onMouseLeave={handleCardTiltLeave}
                   >
-                    <div className="relative aspect-square bg-gray-50">
+                    <div className="relative aspect-square bg-gray-50 overflow-hidden">
                       <img
                         src={m.dataUrl}
                         alt="media"
-                        className="h-full w-full object-cover cursor-zoom-in"
+                        className="h-full w-full object-cover cursor-zoom-in media-card-image"
                         loading="lazy"
-                        onClick={() => setMediaPreview(m.dataUrl)}
+                        onClick={() => openMediaViewer(index)}
                       />
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 text-xs text-white opacity-0 group-hover:opacity-100 transition">
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent p-3 text-[11px] text-white opacity-0 group-hover:opacity-100 transition">
                         <div className="font-semibold truncate">
                           {m.createdBy.name}
                         </div>
                         <div className="text-[10px] uppercase tracking-wide">
-                          {m.visibility}
+                          {m.source === "timeline"
+                            ? "Timeline"
+                            : `Visibility: ${m.visibility}`}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        disabled={!canDelete}
-                        onClick={async () => {
-                          if (!canDelete) return;
-                          await deleteMedia(groupId, m.id, me.userId);
-                          setMediaVersion((v) => v + 1);
-                        }}
-                        className="absolute top-2 right-2 rounded-full bg-white/90 text-gray-900 px-2 py-1 text-xs font-bold opacity-0 group-hover:opacity-100 transition disabled:opacity-40"
-                        title={
-                          canDelete ? "Delete media" : "Only owner can delete"
-                        }
-                      >
-                        Delete
-                      </button>
-                    </div>
 
-                    <div className="p-3 space-y-2">
-                      <div className="text-xs font-semibold text-gray-600">
-                        Comments
-                      </div>
-                      <div className="space-y-2 max-h-28 overflow-y-auto pr-1">
-                        {comments.length === 0 ? (
-                          <div className="text-xs text-gray-500">
-                            No comments yet.
+                      <div className="absolute top-3 right-3">
+                        <button
+                          type="button"
+                          className="h-9 w-9 rounded-full bg-white/90 text-gray-900 shadow-soft flex items-center justify-center text-lg font-bold opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMediaMenuOpenId((prev) =>
+                              prev === m.id ? null : m.id,
+                            );
+                          }}
+                          aria-label="Media actions"
+                        >
+                          ⋯
+                        </button>
+
+                        {mediaMenuOpenId === m.id && (
+                          <div
+                            className="absolute right-0 mt-2 w-52 rounded-2xl border border-gray-200 bg-white/95 shadow-soft backdrop-blur p-1 text-sm"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              className="w-full rounded-xl px-3 py-2 text-left font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() => {
+                                setMediaMenuOpenId(null);
+                                const a = document.createElement("a");
+                                a.href = m.dataUrl;
+                                a.download = "journey-media";
+                                a.rel = "noopener";
+                                a.click();
+                              }}
+                            >
+                              Download
+                            </button>
+                            <button
+                              type="button"
+                              className="w-full rounded-xl px-3 py-2 text-left font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() => {
+                                setMediaMenuOpenId(null);
+                                const w = window.open("", "_blank");
+                                if (!w) return;
+                                w.document.write(
+                                  `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;"><img src="${m.dataUrl}" style="max-width:100%;max-height:100vh;"/></body></html>`,
+                                );
+                                w.document.close();
+                                w.focus();
+                                w.print();
+                              }}
+                            >
+                              Print
+                            </button>
+                            <button
+                              type="button"
+                              className="w-full rounded-xl px-3 py-2 text-left font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() => {
+                                setMediaMenuOpenId(null);
+                                void shareMediaLink(m.dataUrl);
+                              }}
+                            >
+                              Share
+                            </button>
+                            {!isViewer && m.source === "media" && (
+                              <button
+                                type="button"
+                                className="w-full rounded-xl px-3 py-2 text-left font-semibold text-gray-700 hover:bg-gray-50"
+                                onClick={() => {
+                                  setMediaMenuOpenId(null);
+                                  void repostToTimeline(m.dataUrl);
+                                }}
+                              >
+                                Repost to timeline
+                              </button>
+                            )}
+                            {canEdit && (
+                              <button
+                                type="button"
+                                className="w-full rounded-xl px-3 py-2 text-left font-semibold text-gray-700 hover:bg-gray-50"
+                                onClick={() => {
+                                  setMediaMenuOpenId(null);
+                                  setMediaEditTarget({
+                                    id: m.id,
+                                    source: m.source,
+                                    postId: m.postId,
+                                    postImages: m.postImages,
+                                    imageIndex: m.imageIndex,
+                                    createdBy: m.createdBy,
+                                  });
+                                  mediaEditRef.current?.click();
+                                }}
+                              >
+                                Edit
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button
+                                type="button"
+                                className="w-full rounded-xl px-3 py-2 text-left font-semibold text-red-600 hover:bg-red-50"
+                                onClick={async () => {
+                                  setMediaMenuOpenId(null);
+                                  await deleteMedia(groupId, m.id, me.userId);
+                                  setMediaVersion((v) => v + 1);
+                                }}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
-                        ) : (
-                          comments.map((c) => (
-                            <div key={c.id} className="text-xs text-gray-700">
-                              <span className="font-semibold">
-                                {c.createdBy?.name ?? "User"}
-                              </span>{" "}
-                              {c.text}
-                              {(c.replies ?? []).length > 0 && (
-                                <div className="mt-1 space-y-1">
-                                  {c.replies!.map((r) => (
-                                    <div
-                                      key={r.id}
-                                      className="rounded-lg border border-gray-100 bg-gray-50 px-2 py-1 text-[11px] text-gray-700"
-                                    >
-                                      <span className="font-semibold">
-                                        {r.createdBy?.name ?? "User"}
-                                      </span>{" "}
-                                      {r.text}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              <div className="mt-1 flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  className="text-[11px] font-semibold text-blue-600 hover:underline"
-                                  onClick={() =>
-                                    setMediaReplyOpen((prev) => ({
-                                      ...prev,
-                                      [c.id]: !prev[c.id],
-                                    }))
-                                  }
-                                >
-                                  Reply
-                                </button>
-                              </div>
-                              {mediaReplyOpen[c.id] && (
-                                <div className="mt-1 flex items-center gap-2">
-                                  <input
-                                    value={mediaReplyDrafts[c.id] ?? ""}
-                                    onChange={(e) =>
-                                      setMediaReplyDrafts((prev) => ({
-                                        ...prev,
-                                        [c.id]: e.target.value,
-                                      }))
-                                    }
-                                    placeholder="Reply…"
-                                    className="flex-1 rounded-2xl border border-gray-200 bg-white px-2 py-1 text-[11px] outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-                                  />
-                                  <Button
-                                    variant="primary"
-                                    disabled={
-                                      !me ||
-                                      !(mediaReplyDrafts[c.id] ?? "").trim()
-                                    }
-                                    onClick={async () => {
-                                      if (!me) return;
-                                      const t = (
-                                        mediaReplyDrafts[c.id] ?? ""
-                                      ).trim();
-                                      if (!t) return;
-                                      await addMediaCommentReply(
-                                        m.id,
-                                        c.id,
-                                        me,
-                                        t,
-                                      );
-                                      setMediaReplyDrafts((prev) => ({
-                                        ...prev,
-                                        [c.id]: "",
-                                      }));
-                                      setMediaReplyOpen((prev) => ({
-                                        ...prev,
-                                        [c.id]: false,
-                                      }));
-                                      setMediaVersion((v) => v + 1);
-                                    }}
-                                  >
-                                    Send
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                          ))
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          value={mediaCommentDrafts[m.id] ?? ""}
-                          onChange={(e) =>
-                            setMediaCommentDrafts((prev) => ({
-                              ...prev,
-                              [m.id]: e.target.value,
-                            }))
-                          }
-                          placeholder="Write a comment…"
-                          className="flex-1 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-                        />
-                        <Button
-                          variant="primary"
-                          disabled={!me || !(mediaCommentDrafts[m.id] ?? "").trim()}
-                          onClick={async () => {
-                            if (!me) return;
-                            const t = (mediaCommentDrafts[m.id] ?? "").trim();
-                            if (!t) return;
-                            await addMediaComment(m.id, me, t);
-                            setMediaCommentDrafts((prev) => ({
-                              ...prev,
-                              [m.id]: "",
-                            }));
-                            setMediaVersion((v) => v + 1);
-                          }}
-                        >
-                          Send
-                        </Button>
+                    </div>
+
+                    <div className="px-3 pb-3 pt-2">
+                      <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                        <span className="truncate font-semibold text-gray-900">
+                          {m.createdBy.name}
+                        </span>
+                        <span>{new Date(m.createdAt).toLocaleDateString()}</span>
                       </div>
                     </div>
                   </div>
@@ -2699,32 +3089,74 @@ export function GroupHome({
       <ChatWidget
         groupId={groupId}
         groupName={group.name}
-        canEditGroupName={myRole !== "member"}
+        canEditGroupName={canManageGroup}
         onGroupNameUpdated={(name) =>
           setGroup((g) => (g ? { ...g, name } : g))
         }
       />
 
-      {mediaPreview && (
+      {mediaViewerOpen && mediaItems[mediaViewerIndex] && (
         <div
-          className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setMediaPreview(null)}
+          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
+          onClick={closeMediaViewer}
         >
-          <div className="relative max-w-[95vw] max-h-[90vh]">
-            <img
-              src={mediaPreview}
-              alt="preview"
-              className="max-h-[90vh] max-w-[95vw] rounded-2xl object-contain"
-              onClick={(e) => e.stopPropagation()}
-            />
+          <div
+            className="relative max-w-[95vw] max-h-[90vh] w-full flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={handleMediaTouchStart}
+            onTouchMove={handleMediaTouchMove}
+            onTouchEnd={handleMediaTouchEnd}
+          >
+            <div
+              className={[
+                "relative max-w-[95vw] max-h-[90vh] overflow-auto rounded-2xl media-viewer-pop",
+                mediaViewerZoom ? "cursor-zoom-out" : "cursor-zoom-in",
+              ].join(" ")}
+            >
+              <img
+                src={mediaItems[mediaViewerIndex].dataUrl}
+                alt="preview"
+                className={[
+                  "max-h-[90vh] max-w-[95vw] object-contain transition-transform duration-200",
+                  mediaViewerZoom ? "scale-150" : "scale-100",
+                ].join(" ")}
+                onClick={() => setMediaViewerZoom((v) => !v)}
+              />
+            </div>
+
+            {mediaItems.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={mediaViewerPrev}
+                  className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/90 text-gray-900 shadow-soft"
+                  title="Previous"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={mediaViewerNext}
+                  className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/90 text-gray-900 shadow-soft"
+                  title="Next"
+                >
+                  ›
+                </button>
+              </>
+            )}
+
             <button
               type="button"
-              onClick={() => setMediaPreview(null)}
+              onClick={closeMediaViewer}
               className="absolute -top-3 -right-3 h-9 w-9 rounded-full bg-white text-gray-900 shadow-soft"
               title="Close"
             >
               ✕
             </button>
+
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white">
+              {mediaViewerIndex + 1} / {mediaItems.length}
+            </div>
           </div>
         </div>
       )}

@@ -1,5 +1,6 @@
 // src/pages/Dashboard.tsx
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 
@@ -39,6 +40,9 @@ export function Dashboard({ onLogout, onOpenGroup }: DashboardProps) {
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState<string | null>(null);
   const [groupError, setGroupError] = useState<string | null>(null);
+  const [privacyAck, setPrivacyAck] = useState(false);
+  const [termsAck, setTermsAck] = useState(false);
+  const [cookiesAck, setCookiesAck] = useState(false);
 
   const [groups, setGroups] = useState<
     Array<{ id: string; name: string; code: string }>
@@ -174,6 +178,7 @@ export function Dashboard({ onLogout, onOpenGroup }: DashboardProps) {
   }
 
   async function createGroup() {
+    if (!privacyAck || !termsAck || !cookiesAck) return;
     if (!groupName.trim()) return;
 
     try {
@@ -189,6 +194,7 @@ export function Dashboard({ onLogout, onOpenGroup }: DashboardProps) {
   }
 
   async function joinGroup() {
+    if (!privacyAck || !termsAck || !cookiesAck) return;
     if (!joinCode.trim()) return;
 
     setJoinError(null);
@@ -302,6 +308,66 @@ export function Dashboard({ onLogout, onOpenGroup }: DashboardProps) {
 
             {/* Create / Join */}
             <div className="rounded-3xl border border-gray-200 p-4 shadow-soft bg-white space-y-6">
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                <div className="text-xs font-semibold text-gray-700">
+                  Privacy, Terms & Cookies
+                </div>
+                <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
+                  <Link
+                    to="/privacy"
+                    className="font-semibold text-blue-600 hover:underline"
+                  >
+                    Privacy Policy
+                  </Link>
+                  <Link
+                    to="/terms"
+                    className="font-semibold text-blue-600 hover:underline"
+                  >
+                    Terms
+                  </Link>
+                  <Link
+                    to="/cookies"
+                    className="font-semibold text-blue-600 hover:underline"
+                  >
+                    Cookies Policy
+                  </Link>
+                </div>
+                <div className="mt-3 space-y-2 text-xs font-semibold text-gray-700">
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={privacyAck}
+                      onChange={(e) => setPrivacyAck(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>I understand the privacy policy.</span>
+                  </label>
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={termsAck}
+                      onChange={(e) => setTermsAck(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>I agree to the terms and conditions.</span>
+                  </label>
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={cookiesAck}
+                      onChange={(e) => setCookiesAck(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>I acknowledge cookies/local storage usage.</span>
+                  </label>
+                </div>
+                {(!privacyAck || !termsAck || !cookiesAck) && (
+                  <div className="mt-2 text-[11px] text-gray-500">
+                    Please acknowledge all items to create or join a group.
+                  </div>
+                )}
+              </div>
+
               <div>
                 <div className="font-bold text-gray-900">Create Group</div>
                 <input
@@ -310,7 +376,11 @@ export function Dashboard({ onLogout, onOpenGroup }: DashboardProps) {
                   className="mt-2 w-full rounded-2xl border border-gray-200 p-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
                   placeholder="Trip Name"
                 />
-                <Button className="mt-3 w-full sm:w-auto" onClick={createGroup}>
+                <Button
+                  className="mt-3 w-full sm:w-auto"
+                  onClick={createGroup}
+                  disabled={!privacyAck || !termsAck || !cookiesAck}
+                >
                   Create
                 </Button>
               </div>
@@ -327,6 +397,7 @@ export function Dashboard({ onLogout, onOpenGroup }: DashboardProps) {
                   variant="orange"
                   className="mt-3 w-full sm:w-auto"
                   onClick={joinGroup}
+                  disabled={!privacyAck || !termsAck || !cookiesAck}
                 >
                   Join
                 </Button>

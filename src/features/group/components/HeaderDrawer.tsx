@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Card } from "../../../components/ui/Card";
 import { Button } from "../../../components/ui/Button";
 import {
@@ -69,12 +70,13 @@ export function HeaderDrawer({
   groupId: string;
   groupName: string;
   groupCode: string;
-  myRole: "host" | "admin" | "member";
+  myRole: "host" | "admin" | "member" | "viewer";
   me: { userId: string; name: string } | null;
   onMetaChange?: () => void;
   onHeaderImageChange?: (next: string | null) => void;
 }) {
   const meUserId = me?.userId ?? null;
+  const canManageGroup = myRole === "host" || myRole === "admin";
   const [tab, setTab] = useState<Tab>("group");
 
   const [meta, setMeta] = useState<GroupMeta>({});
@@ -117,6 +119,8 @@ export function HeaderDrawer({
   >("member");
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const [memberBusy, setMemberBusy] = useState(false);
+  const [privacyAck, setPrivacyAck] = useState(false);
+  const [termsAck, setTermsAck] = useState(false);
 
   const fileRef = useRef<HTMLInputElement | null>(null);
   const coverRef = useRef<HTMLInputElement | null>(null);
@@ -147,6 +151,7 @@ export function HeaderDrawer({
         groupType: next.groupType as GroupMeta["groupType"],
         description: next.description,
         eventDate: next.eventDate,
+        timelinePublic: next.timelinePublic,
       });
     })();
 
@@ -181,7 +186,7 @@ export function HeaderDrawer({
   useEffect(() => {
     if (!open) return;
     if (tab !== "group") return;
-    if (myRole === "member") return;
+    if (!canManageGroup) return;
 
     let mounted = true;
     const load = async () => {
@@ -524,7 +529,51 @@ export function HeaderDrawer({
                     )}
                   </div>
 
-                  {myRole !== "member" && (
+                  <div className="rounded-2xl border border-gray-200 bg-white p-3">
+                    <div className="text-sm font-extrabold text-gray-900">
+                      Timeline visibility
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      When public, anyone logged in can view this group’s
+                      timeline. Only members can post, comment, or like.
+                    </div>
+                    <div className="mt-3 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!canManageGroup) return;
+                          const next = !meta.timelinePublic;
+                          setMeta((prev) => ({
+                            ...prev,
+                            timelinePublic: next,
+                          }));
+                          updateGroupMeta(groupId, {
+                            timelinePublic: next,
+                          }).then(() => onMetaChange?.());
+                        }}
+                        className={[
+                          "h-9 w-16 rounded-full border transition relative",
+                          meta.timelinePublic
+                            ? "bg-blue-600 border-blue-600"
+                            : "bg-gray-200 border-gray-300",
+                          !canManageGroup ? "opacity-60 cursor-not-allowed" : "",
+                        ].join(" ")}
+                        aria-label="Toggle public timeline"
+                      >
+                        <span
+                          className={[
+                            "absolute top-1 h-7 w-7 rounded-full bg-white shadow",
+                            meta.timelinePublic ? "left-8" : "left-1",
+                          ].join(" ")}
+                        />
+                      </button>
+                      <div className="text-sm font-semibold text-gray-700">
+                        {meta.timelinePublic ? "Public" : "Group only"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {canManageGroup && (
                     <div className="rounded-2xl border border-gray-200 bg-white p-3">
                       <div className="text-sm font-extrabold text-gray-900">
                         Members
@@ -1096,6 +1145,79 @@ export function HeaderDrawer({
                         </Button>
                       )}
                     </div>
+                  </Card>
+
+                  <Card>
+                    <div className="text-sm font-extrabold text-gray-900">
+                      Privacy Policy (Testing Build)
+                    </div>
+                    <div className="mt-2 space-y-2 text-xs text-gray-600">
+                      <p>
+                        This page is designed for testing only and is group
+                        member based. Access is via creating a group or joining
+                        with an invite code.
+                      </p>
+                      <p>
+                        We do not intentionally collect personal data beyond
+                        basic login needs. Cookies/local storage may be used for
+                        session and preferences.
+                      </p>
+                      <Link
+                        to="/privacy"
+                        className="inline-flex items-center text-xs font-semibold text-blue-600 hover:underline"
+                      >
+                        Read more
+                      </Link>
+                    </div>
+                    <label className="mt-3 flex items-start gap-2 text-xs font-semibold text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={privacyAck}
+                        onChange={(e) => setPrivacyAck(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>
+                        I understand the privacy policy and cookie usage
+                        acknowledgement.
+                      </span>
+                    </label>
+                  </Card>
+
+                  <Card>
+                    <div className="text-sm font-extrabold text-gray-900">
+                      Terms & Conditions
+                    </div>
+                    <div className="mt-2 space-y-2 text-xs text-gray-600">
+                      <p>
+                        This app is for fun trip planning and group
+                        coordination. Terms can change anytime.
+                      </p>
+                      <p>
+                        Use at your own risk. No hacking activity or abuse is
+                        allowed.
+                      </p>
+                      <p>
+                        No commercial use. No copying/selling/reselling this
+                        app or its content.
+                      </p>
+                      <Link
+                        to="/terms"
+                        className="inline-flex items-center text-xs font-semibold text-blue-600 hover:underline"
+                      >
+                        Read more
+                      </Link>
+                    </div>
+                    <label className="mt-3 flex items-start gap-2 text-xs font-semibold text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={termsAck}
+                        onChange={(e) => setTermsAck(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>
+                        I agree to the terms and conditions acknowledgement.
+                      </span>
+                    </label>
                   </Card>
                 </div>
               )}

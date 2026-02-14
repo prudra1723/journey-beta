@@ -146,7 +146,7 @@ export async function getMyRole(groupId: string, userId: string) {
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw error;
-  return (data?.role as "host" | "admin" | "member") ?? "member";
+  return (data?.role as "host" | "admin" | "member") ?? "viewer";
 }
 
 export type GroupMember = {
@@ -254,7 +254,7 @@ export async function getGroupMeta(groupId: string) {
   const client = assertSupabase();
   const { data, error } = await client
     .from("groups")
-    .select("group_type,description,event_date")
+    .select("group_type,description,event_date,timeline_public")
     .eq("id", groupId)
     .maybeSingle();
   if (error) throw error;
@@ -262,6 +262,7 @@ export async function getGroupMeta(groupId: string) {
     groupType: data?.group_type ?? undefined,
     description: data?.description ?? undefined,
     eventDate: data?.event_date ?? undefined,
+    timelinePublic: Boolean(data?.timeline_public),
   };
 }
 
@@ -439,17 +440,28 @@ export async function joinGroup(code: string, userId: string) {
 
 export async function updateGroupMeta(
   groupId: string,
-  patch: { groupType?: string; description?: string; eventDate?: string },
+  patch: {
+    groupType?: string;
+    description?: string;
+    eventDate?: string;
+    timelinePublic?: boolean;
+  },
 ) {
   const client = assertSupabase();
-  const { error } = await client
-    .from("groups")
-    .update({
-      group_type: patch.groupType ?? null,
-      description: patch.description ?? null,
-      event_date: patch.eventDate ?? null,
-    })
-    .eq("id", groupId);
+  const updates: Record<string, unknown> = {};
+  if (patch.groupType !== undefined) {
+    updates.group_type = patch.groupType ?? null;
+  }
+  if (patch.description !== undefined) {
+    updates.description = patch.description ?? null;
+  }
+  if (patch.eventDate !== undefined) {
+    updates.event_date = patch.eventDate ?? null;
+  }
+  if (patch.timelinePublic !== undefined) {
+    updates.timeline_public = patch.timelinePublic;
+  }
+  const { error } = await client.from("groups").update(updates).eq("id", groupId);
   if (error) throw error;
 }
 
@@ -1026,7 +1038,7 @@ export async function readMedia(groupId: string) {
   const { data, error } = await client
     .from("media_items")
     .select(
-      "id,image_url,visibility,created_by,created_at,comments,profiles:created_by(display_name)",
+      "id,image_url,visibility,created_by,created_at,profiles:created_by(display_name)",
     )
     .eq("group_id", groupId)
     .order("created_at", { ascending: false });
@@ -1052,13 +1064,59 @@ export async function readMedia(groupId: string) {
       userId: row.created_by,
       name: row.profiles?.display_name ?? "Unknown",
     },
-    comments: Array.isArray(row.comments)
-      ? (row.comments as any[]).map((c) => ({
-          ...c,
-          replies: Array.isArray(c.replies) ? c.replies : [],
-        }))
-      : [],
   }));
+}
+
+export async function updateMediaImage(
+  mediaId: string,
+  userId: string,
+  imageUrl: string,
+) {
+  const client = assertSupabase();
+  const { error } = await client
+    .from("media_items")
+    .update({ image_url: imageUrl })
+    .eq("id", mediaId)
+    .eq("created_by", userId);
+  if (error) throw error;
+}
+
+export async function readTimelineImages(groupId: string) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("timeline_images")
+    .select("post_id,image_url,position,timeline_posts!inner(group_id)")
+    .eq("timeline_posts.group_id", groupId)
+    .order("position", { ascending: true });
+
+  if (error) throw error;
+
+  const map: Record<string, string[]> = {};
+  (data ?? []).forEach((row: any) => {
+    const key = row.post_id as string;
+    map[key] = map[key] ?? [];
+    map[key].push(row.image_url as string);
+  });
+  return map;
+}
+
+export async function saveTimelineImages(postId: string, urls: string[]) {
+  const client = assertSupabase();
+  const { error: delErr } = await client
+    .from("timeline_images")
+    .delete()
+    .eq("post_id", postId);
+  if (delErr) throw delErr;
+
+  if (urls.length === 0) return;
+
+  const rows = urls.map((url, index) => ({
+    post_id: postId,
+    image_url: url,
+    position: index,
+  }));
+  const { error } = await client.from("timeline_images").insert(rows);
+  if (error) throw error;
 }
 
 export async function addMediaComment(
@@ -1163,4 +1221,82 @@ export async function deleteMedia(
     .eq("group_id", groupId)
     .eq("created_by", userId);
   if (error) throw error;
+}
+
+export type OrderListItem = {
+  id: string;
+  label: string;
+  checked: boolean;
+};
+
+export async function readOrderList(groupId: string) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("order_lists")
+    .select("items,is_created,updated_at,created_by")
+    .eq("group_id", groupId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const items = Array.isArray(data?.items) ? data?.items : [];
+  const normalized = items
+    .filter((item: any) => item?.id && item?.label)
+    .map((item: any) => ({
+      id: String(item.id),
+      label: String(item.label),
+      checked: Boolean(item.checked),
+    }));
+
+  return {
+    items: normalized as OrderListItem[],
+    created: Boolean(data?.is_created),
+    updatedAt: data?.updated_at ?? null,
+    createdBy: data?.created_by ?? null,
+  };
+}
+
+export async function saveOrderList(
+  groupId: string,
+  items: OrderListItem[],
+  created: boolean,
+  userId: string,
+) {
+  const client = assertSupabase();
+  const payload = {
+    group_id: groupId,
+    items,
+    is_created: created,
+    created_by: userId,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await client
+    .from("order_lists")
+    .upsert(payload, { onConflict: "group_id" });
+  if (error) throw error;
+}
+
+export function subscribeOrderList(
+  groupId: string,
+  onChange: () => void,
+) {
+  const client = assertSupabase();
+  const channel = client
+    .channel(`order_list_${groupId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "order_lists",
+        filter: `group_id=eq.${groupId}`,
+      },
+      () => {
+        onChange();
+      },
+    )
+    .subscribe();
+
+  return () => {
+    void client.removeChannel(channel);
+  };
 }

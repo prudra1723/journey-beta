@@ -3,7 +3,9 @@ alter table profiles enable row level security;
 alter table groups enable row level security;
 alter table group_members enable row level security;
 alter table plans enable row level security;
+alter table order_lists enable row level security;
 alter table timeline_posts enable row level security;
+alter table timeline_images enable row level security;
 alter table timeline_likes enable row level security;
 alter table timeline_comments enable row level security;
 alter table media_items enable row level security;
@@ -35,6 +37,11 @@ create policy "groups_select_member"
     where gm.group_id = id and gm.user_id = auth.uid()
   ));
 
+create policy "groups_select_public_timeline"
+  on groups for select
+  to authenticated
+  using (timeline_public = true);
+
 create policy "groups_insert_authenticated"
   on groups for insert
   with check (auth.uid() is not null);
@@ -56,6 +63,10 @@ create policy "group_members_select_group"
     where gm.group_id = group_members.group_id
       and gm.user_id = auth.uid()
   ));
+
+create policy "group_members_select_self"
+  on group_members for select
+  using (user_id = auth.uid());
 
 create policy "group_members_insert_host_admin"
   on group_members for insert
@@ -92,6 +103,28 @@ create policy "plan_extras_member_access"
     where gm.group_id = plan_extras.group_id and gm.user_id = auth.uid()
   ));
 
+-- Order lists: members can read/write
+create policy "order_lists_member_select"
+  on order_lists for select
+  using (exists (
+    select 1 from group_members gm
+    where gm.group_id = order_lists.group_id and gm.user_id = auth.uid()
+  ));
+
+create policy "order_lists_member_insert"
+  on order_lists for insert
+  with check (exists (
+    select 1 from group_members gm
+    where gm.group_id = order_lists.group_id and gm.user_id = auth.uid()
+  ));
+
+create policy "order_lists_member_update"
+  on order_lists for update
+  using (exists (
+    select 1 from group_members gm
+    where gm.group_id = order_lists.group_id and gm.user_id = auth.uid()
+  ));
+
 -- Timeline: members only
 create policy "timeline_posts_member_access"
   on timeline_posts for all
@@ -102,6 +135,36 @@ create policy "timeline_posts_member_access"
   with check (exists (
     select 1 from group_members gm
     where gm.group_id = timeline_posts.group_id and gm.user_id = auth.uid()
+  ));
+
+create policy "timeline_posts_public_read"
+  on timeline_posts for select
+  to authenticated
+  using (exists (
+    select 1 from groups g
+    where g.id = timeline_posts.group_id and g.timeline_public = true
+  ));
+
+create policy "timeline_images_member_access"
+  on timeline_images for all
+  using (exists (
+    select 1 from group_members gm
+    join timeline_posts tp on tp.id = timeline_images.post_id
+    where gm.group_id = tp.group_id and gm.user_id = auth.uid()
+  ))
+  with check (exists (
+    select 1 from group_members gm
+    join timeline_posts tp on tp.id = timeline_images.post_id
+    where gm.group_id = tp.group_id and gm.user_id = auth.uid()
+  ));
+
+create policy "timeline_images_public_read"
+  on timeline_images for select
+  to authenticated
+  using (exists (
+    select 1 from groups g
+    join timeline_posts tp on tp.id = timeline_images.post_id
+    where g.id = tp.group_id and g.timeline_public = true
   ));
 
 create policy "timeline_comments_member_access"
@@ -117,6 +180,15 @@ create policy "timeline_comments_member_access"
     where gm.group_id = tp.group_id and gm.user_id = auth.uid()
   ));
 
+create policy "timeline_comments_public_read"
+  on timeline_comments for select
+  to authenticated
+  using (exists (
+    select 1 from groups g
+    join timeline_posts tp on tp.id = timeline_comments.post_id
+    where g.id = tp.group_id and g.timeline_public = true
+  ));
+
 create policy "timeline_likes_member_access"
   on timeline_likes for all
   using (exists (
@@ -128,6 +200,15 @@ create policy "timeline_likes_member_access"
     select 1 from group_members gm
     join timeline_posts tp on tp.id = timeline_likes.post_id
     where gm.group_id = tp.group_id and gm.user_id = auth.uid()
+  ));
+
+create policy "timeline_likes_public_read"
+  on timeline_likes for select
+  to authenticated
+  using (exists (
+    select 1 from groups g
+    join timeline_posts tp on tp.id = timeline_likes.post_id
+    where g.id = tp.group_id and g.timeline_public = true
   ));
 
 -- Media: group-only (default), shared (any auth), private (owner)

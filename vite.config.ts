@@ -3,4 +3,15 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    sourcemap: false,
+    minify: "terser",
+    terserOptions: {
+      compress: true,
+      mangle: true,
+      format: {
+        comments: false,
+      },
+    },
+  },
 });
