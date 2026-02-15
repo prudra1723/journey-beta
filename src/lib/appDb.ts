@@ -1091,14 +1091,12 @@ export async function updateMediaImage(
 
 export async function readTimelineImages(groupId?: string) {
   const client = assertSupabase();
-  let query = client.from("timeline_images");
-  if (groupId) {
-    query = query
-      .select("post_id,image_url,position,timeline_posts!inner(group_id)")
-      .eq("timeline_posts.group_id", groupId);
-  } else {
-    query = query.select("post_id,image_url,position");
-  }
+  const query = groupId
+    ? client
+        .from("timeline_images")
+        .select("post_id,image_url,position,timeline_posts!inner(group_id)")
+        .eq("timeline_posts.group_id", groupId)
+    : client.from("timeline_images").select("post_id,image_url,position");
   const { data, error } = await query.order("position", { ascending: true });
 
   if (error) throw error;
