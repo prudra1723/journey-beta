@@ -5,6 +5,7 @@ import type { PlanDayKey, PlanItem } from "../lib/betaDb";
 import { getSession } from "../lib/session";
 import ChatWidget from "../components/ChatWidget";
 import TimelineTab from "../components/TimeLineTab";
+import MarketplaceTab from "../components/MarketplaceTab";
 import logo from "../assets/logo.png";
 import navIcon from "../assets/nav-icon.svg";
 import sydneyBanner from "../assets/Sydney_Harbour_Banner.jpg";
@@ -34,6 +35,7 @@ import { UserAvatar } from "../components/UserAvatar";
 import { loadDb } from "../lib/db/storage";
 import { fileToDataUrl } from "../features/chat/lib/chatUi";
 import { uploadImageToR2 } from "../lib/r2Upload";
+import { getKnownMembers, getOnlineMembers, type ChatUser } from "../lib/chatDb";
 import {
   readAbout,
   readMenuText,
@@ -56,7 +58,7 @@ import { FacilityNotesBox } from "../features/group/components/FacilityNotesBox"
 import { EventNotesBox } from "../features/group/components/EventNotesBox";
 import { readGroupHeaderImage } from "../lib/groupHeaderImage";
 
-type TabKey = "timeline" | "plan" | "media" | "orders";
+type TabKey = "timeline" | "plan" | "media" | "orders" | "marketplace";
 
 const ABOUT_OPTIONS = [
   { value: "", label: "Select type" },
@@ -69,6 +71,10 @@ const ABOUT_OPTIONS = [
 ] as const;
 
 const TARGET_GROUP_NAME = "Queensland Toli to sydney Trip 2026";
+
+function isVideoUrl(url: string) {
+  return /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(url);
+}
 
 function TabButton({
   active,
@@ -123,6 +129,16 @@ function MediaIcon() {
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <circle cx="8" cy="10" r="2" />
       <path d="M21 17l-6-6-4 4-2-2-4 4" />
+    </svg>
+  );
+}
+
+function MarketplaceIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 7l1.5 13h14L20 7" />
+      <path d="M6 7a6 6 0 0 1 12 0" />
+      <path d="M9 13h6" />
     </svg>
   );
 }
@@ -369,7 +385,9 @@ export function GroupHome({
       if (!raw) return "timeline";
       const parsed = JSON.parse(raw) as { tab?: TabKey };
       const next = parsed.tab ?? "timeline";
-      return ["timeline", "plan", "media", "orders"].includes(next)
+      return ["timeline", "plan", "media", "orders", "marketplace"].includes(
+        next,
+      )
         ? (next as TabKey)
         : "timeline";
     } catch {
@@ -385,7 +403,7 @@ export function GroupHome({
   }
 
   useEffect(() => {
-    if (isViewer && tab !== "timeline") {
+    if (isViewer && tab !== "timeline" && tab !== "marketplace") {
       setTab("timeline");
     }
   }, [isViewer, tab]);
@@ -630,6 +648,18 @@ export function GroupHome({
   const [mediaViewerIndex, setMediaViewerIndex] = useState(0);
   const [mediaViewerZoom, setMediaViewerZoom] = useState(false);
   const [mediaMenuOpenId, setMediaMenuOpenId] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [chatMode, setChatMode] = useState<"group" | "direct">("group");
+  const [chatPeerId, setChatPeerId] = useState<string | null>(null);
+  const [chatMembers, setChatMembers] = useState<ChatUser[]>([]);
+  const [chatOnlineIds, setChatOnlineIds] = useState<Set<string>>(new Set());
+  const [notifCount, setNotifCount] = useState(0);
+  const notifLatestRef = useRef(0);
+  const notifSeenRef = useRef(0);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [headerHidden, setHeaderHidden] = useState(false);
+  const lastScrollYRef = useRef(0);
   const mediaTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const mediaTouchDeltaRef = useRef<{ x: number; y: number } | null>(null);
   const mediaEditRef = useRef<HTMLInputElement | null>(null);
@@ -645,7 +675,6 @@ export function GroupHome({
     | null
   >(null);
   const timelineMigrateRef = useRef<Record<string, boolean>>({});
-  const [navPinned, setNavPinned] = useState(false);
 
   useEffect(() => {
     if (!mediaMenuOpenId) return;
@@ -660,6 +689,146 @@ export function GroupHome({
       window.removeEventListener("keydown", handleKey);
     };
   }, [mediaMenuOpenId]);
+
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest("[data-profile-menu]")) return;
+      if (target.closest("[data-profile-menu-button]")) return;
+      setProfileMenuOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfileMenuOpen(false);
+    };
+    window.addEventListener("click", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [profileMenuOpen]);
+
+  useEffect(() => {
+    if (!chatMenuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest("[data-chat-menu]")) return;
+      if (target.closest("[data-chat-menu-button]")) return;
+      setChatMenuOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setChatMenuOpen(false);
+    };
+    window.addEventListener("click", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [chatMenuOpen]);
+
+  useEffect(() => {
+    if (!chatMenuOpen || !groupId) return;
+    let active = true;
+    const loadMembers = async () => {
+      try {
+        const [members, online] = await Promise.all([
+          getKnownMembers(groupId),
+          getOnlineMembers(groupId),
+        ]);
+        if (!active) return;
+        setChatMembers(members);
+        setChatOnlineIds(new Set(online.map((m) => m.userId)));
+      } catch {
+        if (!active) return;
+        setChatMembers([]);
+        setChatOnlineIds(new Set());
+      }
+    };
+    loadMembers();
+    return () => {
+      active = false;
+    };
+  }, [chatMenuOpen, groupId]);
+
+  useEffect(() => {
+    if (!session?.userId) return;
+    if (typeof window === "undefined") return;
+    const seenKey = `journey_beta_notifications_seen:${session.userId}`;
+    const raw = localStorage.getItem(seenKey);
+    const lastSeen = raw ? Number(raw) : 0;
+    if (Number.isFinite(lastSeen)) {
+      notifLatestRef.current = lastSeen;
+      notifSeenRef.current = lastSeen;
+    }
+
+    let active = true;
+    const loadNotifications = async () => {
+      try {
+        const posts = await getTimeline(undefined, { limit: 60 });
+        if (!active) return;
+        const latest = posts[0]?.createdAt ?? 0;
+        notifLatestRef.current = Math.max(notifLatestRef.current, latest);
+        const seen = notifSeenRef.current;
+        const count = posts.filter(
+          (p) =>
+            p.createdAt > seen && p.createdBy?.userId !== session.userId,
+        ).length;
+        setNotifCount(count);
+      } catch {
+        if (!active) return;
+        setNotifCount(0);
+      }
+    };
+
+    loadNotifications();
+    const t = window.setInterval(loadNotifications, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(t);
+    };
+  }, [session?.userId]);
+
+  useEffect(() => {
+    if (!session?.userId) return;
+    if (tab !== "timeline") return;
+    if (typeof window === "undefined") return;
+    const seenKey = `journey_beta_notifications_seen:${session.userId}`;
+    const latest = notifLatestRef.current;
+    if (latest > 0) {
+      localStorage.setItem(seenKey, String(latest));
+      notifSeenRef.current = latest;
+      setNotifCount(0);
+    }
+  }, [tab, session?.userId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    lastScrollYRef.current = window.scrollY;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        const current = window.scrollY;
+        const diff = current - lastScrollYRef.current;
+        if (current <= 8) {
+          setHeaderHidden(false);
+        } else if (diff > 6) {
+          setHeaderHidden(true);
+        } else if (diff < -6) {
+          setHeaderHidden(false);
+        }
+        lastScrollYRef.current = current;
+        ticking = false;
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const [exploreTypeBySub, setExploreTypeBySub] = useState<
     Record<string, (typeof EXPLORE_OPTIONS)[number]["value"]>
   >({});
@@ -969,17 +1138,6 @@ export function GroupHome({
       ro.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onScroll = () => {
-      const h = headerRef.current?.getBoundingClientRect().height ?? 120;
-      setNavPinned(window.scrollY > h + 20);
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   useEffect(() => {
@@ -1577,55 +1735,268 @@ export function GroupHome({
       {/* Header */}
       <div
         ref={headerRef}
-        className="journey-header fixed top-0 left-0 right-0 z-50 mx-[5px] mt-[5px]"
+        className={[
+          "journey-header fixed top-0 left-0 right-0 z-50 mx-[5px] mt-[5px] transition-transform duration-300",
+          headerHidden ? "journey-header--hidden" : "",
+        ].join(" ")}
       >
         <div className="mx-auto w-full max-w-6xl">
-          {/* Top bar (logo + menu) sits ABOVE the banner image */}
-          <div className="journey-header-inner px-3 py-2 sm:px-4 sm:py-3 flex flex-wrap items-center justify-between gap-2 sm:gap-4">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <button
-                type="button"
-                onClick={() => setTabAndScroll("timeline")}
-                className="rounded-xl focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 shrink-0"
-                aria-label="Go to Home"
-                title="Home"
-              >
-                <img
-                  src={logo}
-                  alt="logo"
-                  className="journey-header-logo h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 object-contain"
-                />
-              </button>
-              <div className="min-w-0">
-                <div className="journey-header-title text-sm sm:text-base font-extrabold text-gray-900 truncate tracking-tight">
-                  Journey • {group.name}
+          <div className="journey-header-inner px-3 py-2 sm:px-4 sm:py-3 flex flex-col gap-2 rounded-3xl border border-gray-200 bg-white/95 shadow-soft">
+            <div className="flex items-center gap-2 sm:gap-4">
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setTabAndScroll("timeline")}
+                  className="rounded-xl focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 shrink-0"
+                  aria-label="Go to Home"
+                  title="Home"
+                >
+                  <img
+                    src={logo}
+                    alt="logo"
+                    className="journey-header-logo h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 object-contain"
+                  />
+                </button>
+                <div className="min-w-0">
+                  <div className="journey-header-title text-sm sm:text-base font-extrabold text-gray-900 truncate tracking-tight">
+                    Journey • {group.name}
+                  </div>
+                  {me ? (
+                    <div className="journey-header-subtitle text-[11px] text-gray-600 font-semibold truncate">
+                      Signed in as {me.name}
+                    </div>
+                  ) : (
+                    <div className="journey-header-subtitle text-[11px] text-gray-600 font-semibold truncate">
+                      Login required to post
+                    </div>
+                  )}
                 </div>
-                {me ? (
-                  <div className="journey-header-subtitle text-xs text-gray-600 font-semibold flex items-center gap-2 truncate">
-                    <UserAvatar userId={me.userId} name={me.name} size={20} />
-                    <span className="truncate">Signed in as {me.name}</span>
-                  </div>
-                ) : (
-                  <div className="journey-header-subtitle text-xs text-gray-600 font-semibold truncate">
-                    Login required to post notes
-                  </div>
-                )}
+              </div>
+
+              <div className="hidden sm:flex flex-1 px-2">
+                <div className="relative w-full max-w-lg">
+                  <input
+                    type="text"
+                    placeholder="Search posts or members"
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    data-chat-menu-button
+                    onClick={() => setChatMenuOpen((v) => !v)}
+                    className="h-9 w-9 rounded-2xl border border-gray-200 bg-white text-lg hover:bg-gray-50"
+                    title="Chat"
+                    aria-label="Chat"
+                  >
+                    💬
+                  </button>
+                  {chatMenuOpen && (
+                    <div
+                      data-chat-menu
+                      className="absolute right-0 mt-2 w-64 rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden z-50"
+                    >
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+                        <div className="text-sm font-semibold text-gray-900">
+                          Group members
+                        </div>
+                        <button
+                          type="button"
+                          className="h-7 w-7 rounded-xl border border-gray-200 bg-white text-xs hover:bg-gray-50"
+                          title="Chat settings"
+                          aria-label="Chat settings"
+                          onClick={() => {
+                            setChatMode("group");
+                            setChatPeerId(null);
+                            setChatOpen(true);
+                            setChatMenuOpen(false);
+                          }}
+                        >
+                          ⚙️
+                        </button>
+                      </div>
+                      <div className="max-h-64 overflow-auto">
+                        {chatMembers.length === 0 && (
+                          <div className="px-3 py-2 text-xs text-gray-500">
+                            No members yet.
+                          </div>
+                        )}
+                        {chatMembers.map((member) => {
+                          const isOnline = chatOnlineIds.has(member.userId);
+                          const isSelf = member.userId === me?.userId;
+                          return (
+                            <button
+                              key={member.userId}
+                              type="button"
+                              className="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-gray-50"
+                              onClick={() => {
+                                if (isSelf) {
+                                  setChatMode("group");
+                                  setChatPeerId(null);
+                                } else {
+                                  setChatMode("direct");
+                                  setChatPeerId(member.userId);
+                                }
+                                setChatOpen(true);
+                                setChatMenuOpen(false);
+                              }}
+                            >
+                              <UserAvatar
+                                userId={member.userId}
+                                name={member.name}
+                                size={28}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-semibold text-gray-900 truncate">
+                                  {member.name}
+                                  {isSelf ? " (You)" : ""}
+                                </div>
+                                <div className="text-[11px] text-gray-500">
+                                  {isSelf
+                                    ? "Group chat"
+                                    : "Direct message"}
+                                </div>
+                              </div>
+                              <span
+                                className={[
+                                  "h-2.5 w-2.5 rounded-full",
+                                  isOnline ? "bg-emerald-500" : "bg-gray-300",
+                                ].join(" ")}
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="relative h-9 w-9 rounded-2xl border border-gray-200 bg-white text-lg hover:bg-gray-50"
+                  title="Notifications"
+                  aria-label="Notifications"
+                  onClick={() => {
+                    if (session?.userId && typeof window !== "undefined") {
+                      const seenKey = `journey_beta_notifications_seen:${session.userId}`;
+                      const latest = notifLatestRef.current;
+                      if (latest > 0) {
+                        localStorage.setItem(seenKey, String(latest));
+                        notifSeenRef.current = latest;
+                      }
+                      setNotifCount(0);
+                    }
+                    setTabAndScroll("timeline");
+                  }}
+                >
+                  🔔
+                  {notifCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                      {notifCount > 99 ? "99+" : notifCount}
+                    </span>
+                  )}
+                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    data-profile-menu-button
+                    onClick={() => setProfileMenuOpen((v) => !v)}
+                    className="h-9 w-9 rounded-full border border-gray-200 bg-white flex items-center justify-center overflow-hidden"
+                    title="Profile menu"
+                    aria-label="Profile menu"
+                  >
+                    {me ? (
+                      <UserAvatar userId={me.userId} name={me.name} size={32} />
+                    ) : (
+                      <span className="text-sm">👤</span>
+                    )}
+                  </button>
+
+                  {profileMenuOpen && (
+                    <div
+                      data-profile-menu
+                      className="absolute right-0 mt-2 w-48 rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden z-50"
+                    >
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm font-semibold text-gray-900 hover:bg-gray-50"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          setDrawerOpen(true);
+                        }}
+                      >
+                        Open menu
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                        onClick={() => setProfileMenuOpen(false)}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <button
-              type="button"
-              className="shrink-0 h-8 w-8 sm:h-auto sm:w-auto px-0 sm:px-3 py-0 sm:py-2 rounded-xl border border-gray-200 bg-white text-[11px] sm:text-sm font-semibold sm:font-extrabold hover:bg-gray-50 flex items-center justify-center gap-2"
-              onClick={() => setDrawerOpen(true)}
-              title="Menu"
-              aria-label="Menu"
-            >
-              <span className="text-sm sm:text-base">☰</span>
-              <span className="hidden sm:inline">Menu</span>
-            </button>
-          </div>
+            <div className="sm:hidden">
+              <input
+                type="text"
+                placeholder="Search posts or members"
+                className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
 
-          {/* header image removed */}
+            <div className="hidden sm:block">
+              <div className="rounded-3xl border border-gray-200 bg-white/90 shadow-soft p-1 sm:p-2">
+                <div
+                  className={[
+                    "grid gap-1 sm:gap-2",
+                    isViewer ? "grid-cols-2" : "grid-cols-5",
+                  ].join(" ")}
+                >
+                  <TabButton
+                    active={tab === "timeline"}
+                    onClick={() => setTabAndScroll("timeline")}
+                    label="Home"
+                    icon={<HomeIcon />}
+                  />
+                  {!isViewer && (
+                    <>
+                      <TabButton
+                        active={tab === "plan"}
+                        onClick={() => setTabAndScroll("plan")}
+                        label="Plan"
+                        icon={<CalendarIcon />}
+                      />
+                      <TabButton
+                        active={tab === "orders"}
+                        onClick={() => setTabAndScroll("orders")}
+                        label="Orders"
+                        icon={<CartIcon />}
+                      />
+                      <TabButton
+                        active={tab === "media"}
+                        onClick={() => setTabAndScroll("media")}
+                        label="Media"
+                        icon={<MediaIcon />}
+                      />
+                    </>
+                  )}
+                  <TabButton
+                    active={tab === "marketplace"}
+                    onClick={() => setTabAndScroll("marketplace")}
+                    label="Market"
+                    icon={<MarketplaceIcon />}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1643,62 +2014,14 @@ export function GroupHome({
       />
 
       <div className="journey-content">
-        {/* Tabs */}
-        <div
-          className={[
-            "journey-tabbar mx-auto w-[95%] max-w-6xl pt-[5px]",
-            navPinned ? "journey-tabbar--pinned" : "journey-tabbar--below",
-          ].join(" ")}
-        >
-          <div className="rounded-3xl border border-gray-200 bg-white/90 shadow-soft p-1 sm:p-2">
-            <div
-              className={[
-                "grid gap-1 sm:gap-2",
-                isViewer ? "grid-cols-1" : "grid-cols-4",
-              ].join(" ")}
-            >
-              <TabButton
-                active={tab === "timeline"}
-                onClick={() => {
-                  setNavPinned(false);
-                  setTabAndScroll("timeline");
-                }}
-                label="Home"
-                icon={<HomeIcon />}
-              />
-              {!isViewer && (
-                <>
-                  <TabButton
-                    active={tab === "plan"}
-                    onClick={() => setTabAndScroll("plan")}
-                    label="Plan"
-                    icon={<CalendarIcon />}
-                  />
-                  <TabButton
-                    active={tab === "orders"}
-                    onClick={() => setTabAndScroll("orders")}
-                    label="Orders"
-                    icon={<CartIcon />}
-                  />
-                  <TabButton
-                    active={tab === "media"}
-                    onClick={() => setTabAndScroll("media")}
-                    label="Media"
-                    icon={<MediaIcon />}
-                  />
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <main className="mx-auto w-[95%] max-w-6xl py-6 space-y-6">
-        <div className={tab === "timeline" ? "-mt-2 sm:-mt-4" : "hidden"}>
+        <main className="mx-auto w-[95%] max-w-6xl py-5 space-y-5">
+        <div className={tab === "timeline" ? "-mt-3 sm:-mt-4" : "hidden"}>
           <TimelineTab
             groupId={groupId}
             onMediaRefresh={() => setMediaVersion((v) => v + 1)}
             canInteract={!isViewer}
             refreshKey={timelineVersion}
+            publicFeed
           />
         </div>
 
@@ -2822,7 +3145,7 @@ export function GroupHome({
                 <input
                   ref={mediaInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   multiple
                   className="hidden"
                   onChange={async (e) => {
@@ -2841,7 +3164,9 @@ export function GroupHome({
                       } catch {
                         if (import.meta.env.DEV) {
                           try {
-                            const dataUrl = await fileToDataUrl(f, 1400, 0.86);
+                            const dataUrl = f.type.startsWith("image/")
+                              ? await fileToDataUrl(f, 1400, 0.86)
+                              : URL.createObjectURL(f);
                             await addMedia(
                               groupId,
                               dataUrl,
@@ -2849,10 +3174,10 @@ export function GroupHome({
                               mediaVisibility,
                             );
                           } catch {
-                            alert("Could not upload this image.");
+                            alert("Could not upload this file.");
                           }
                         } else {
-                          alert("Could not upload this image.");
+                          alert("Could not upload this file.");
                         }
                       }
                     }
@@ -2863,7 +3188,7 @@ export function GroupHome({
                 <input
                   ref={mediaEditRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   className="hidden"
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
@@ -2924,13 +3249,33 @@ export function GroupHome({
                     onMouseLeave={handleCardTiltLeave}
                   >
                     <div className="relative aspect-square bg-gray-50 overflow-hidden">
-                      <img
-                        src={m.dataUrl}
-                        alt="media"
-                        className="h-full w-full object-cover cursor-zoom-in media-card-image"
-                        loading="lazy"
-                        onClick={() => openMediaViewer(index)}
-                      />
+                      {isVideoUrl(m.dataUrl) ? (
+                        <div className="relative h-full w-full">
+                          <video
+                            src={m.dataUrl}
+                            className="h-full w-full object-cover media-card-image"
+                            muted
+                            playsInline
+                            preload="metadata"
+                          />
+                          <button
+                            type="button"
+                            className="absolute inset-0 flex items-center justify-center bg-black/10 text-white text-4xl font-extrabold"
+                            onClick={() => openMediaViewer(index)}
+                            aria-label="Play video"
+                          >
+                            ▶
+                          </button>
+                        </div>
+                      ) : (
+                        <img
+                          src={m.dataUrl}
+                          alt="media"
+                          className="h-full w-full object-cover cursor-zoom-in media-card-image"
+                          loading="lazy"
+                          onClick={() => openMediaViewer(index)}
+                        />
+                      )}
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent p-3 text-[11px] text-white opacity-0 group-hover:opacity-100 transition">
                         <div className="font-semibold truncate">
                           {m.createdBy.name}
@@ -2983,9 +3328,15 @@ export function GroupHome({
                                 setMediaMenuOpenId(null);
                                 const w = window.open("", "_blank");
                                 if (!w) return;
-                                w.document.write(
-                                  `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;"><img src="${m.dataUrl}" style="max-width:100%;max-height:100vh;"/></body></html>`,
-                                );
+                                if (isVideoUrl(m.dataUrl)) {
+                                  w.document.write(
+                                    `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;"><video src="${m.dataUrl}" style="max-width:100%;max-height:100vh;" controls autoplay></video></body></html>`,
+                                  );
+                                } else {
+                                  w.document.write(
+                                    `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;"><img src="${m.dataUrl}" style="max-width:100%;max-height:100vh;"/></body></html>`,
+                                  );
+                                }
                                 w.document.close();
                                 w.focus();
                                 w.print();
@@ -3082,8 +3433,61 @@ export function GroupHome({
           </Card>
         </div>
 
+        <div className={tab === "marketplace" ? "" : "hidden"}>
+          <MarketplaceTab
+            me={me}
+            uploadScope={me ? `band-${me.userId}` : "marketplace"}
+          />
+        </div>
+
         </main>
 
+      </div>
+
+      <div className="sm:hidden fixed bottom-[14px] left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-6xl">
+        <div className="rounded-3xl border border-gray-200 bg-white/95 shadow-soft p-1">
+          <div
+            className={[
+              "grid gap-1",
+              isViewer ? "grid-cols-2" : "grid-cols-5",
+            ].join(" ")}
+          >
+            <TabButton
+              active={tab === "timeline"}
+              onClick={() => setTabAndScroll("timeline")}
+              label="Home"
+              icon={<HomeIcon />}
+            />
+            {!isViewer && (
+              <>
+                <TabButton
+                  active={tab === "plan"}
+                  onClick={() => setTabAndScroll("plan")}
+                  label="Plan"
+                  icon={<CalendarIcon />}
+                />
+                <TabButton
+                  active={tab === "orders"}
+                  onClick={() => setTabAndScroll("orders")}
+                  label="Orders"
+                  icon={<CartIcon />}
+                />
+                <TabButton
+                  active={tab === "media"}
+                  onClick={() => setTabAndScroll("media")}
+                  label="Media"
+                  icon={<MediaIcon />}
+                />
+              </>
+            )}
+            <TabButton
+              active={tab === "marketplace"}
+              onClick={() => setTabAndScroll("marketplace")}
+              label="Market"
+              icon={<MarketplaceIcon />}
+            />
+          </div>
+        </div>
       </div>
 
       <ChatWidget
@@ -3093,6 +3497,12 @@ export function GroupHome({
         onGroupNameUpdated={(name) =>
           setGroup((g) => (g ? { ...g, name } : g))
         }
+        open={chatOpen}
+        onToggle={setChatOpen}
+        showFab={false}
+        mode={chatMode}
+        peerId={chatPeerId}
+        onPeerChange={setChatPeerId}
       />
 
       {mediaViewerOpen && mediaItems[mediaViewerIndex] && (
@@ -3113,15 +3523,25 @@ export function GroupHome({
                 mediaViewerZoom ? "cursor-zoom-out" : "cursor-zoom-in",
               ].join(" ")}
             >
-              <img
-                src={mediaItems[mediaViewerIndex].dataUrl}
-                alt="preview"
-                className={[
-                  "max-h-[90vh] max-w-[95vw] object-contain transition-transform duration-200",
-                  mediaViewerZoom ? "scale-150" : "scale-100",
-                ].join(" ")}
-                onClick={() => setMediaViewerZoom((v) => !v)}
-              />
+              {isVideoUrl(mediaItems[mediaViewerIndex].dataUrl) ? (
+                <video
+                  src={mediaItems[mediaViewerIndex].dataUrl}
+                  className="max-h-[90vh] max-w-[95vw] rounded-2xl object-contain"
+                  controls
+                  autoPlay
+                  playsInline
+                />
+              ) : (
+                <img
+                  src={mediaItems[mediaViewerIndex].dataUrl}
+                  alt="preview"
+                  className={[
+                    "max-h-[90vh] max-w-[95vw] object-contain transition-transform duration-200",
+                    mediaViewerZoom ? "scale-150" : "scale-100",
+                  ].join(" ")}
+                  onClick={() => setMediaViewerZoom((v) => !v)}
+                />
+              )}
             </div>
 
             {mediaItems.length > 1 && (

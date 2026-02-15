@@ -78,6 +78,12 @@ create table if not exists timeline_posts (
   created_at timestamptz default now()
 );
 
+create index if not exists timeline_posts_created_idx
+  on timeline_posts (created_at desc);
+
+create index if not exists timeline_posts_group_created_idx
+  on timeline_posts (group_id, created_at desc);
+
 create table if not exists timeline_images (
   id uuid primary key default gen_random_uuid(),
   post_id uuid references timeline_posts(id) on delete cascade,
@@ -89,12 +95,18 @@ create table if not exists timeline_images (
 create index if not exists timeline_images_post_idx
   on timeline_images (post_id);
 
+create index if not exists timeline_images_post_position_idx
+  on timeline_images (post_id, position);
+
 create table if not exists timeline_likes (
   id uuid primary key default gen_random_uuid(),
   post_id uuid references timeline_posts(id) on delete cascade,
   user_id uuid references profiles(id) on delete cascade,
   created_at timestamptz default now()
 );
+
+create index if not exists timeline_likes_post_idx
+  on timeline_likes (post_id);
 
 create table if not exists timeline_comments (
   id uuid primary key default gen_random_uuid(),
@@ -103,6 +115,9 @@ create table if not exists timeline_comments (
   text text not null,
   created_at timestamptz default now()
 );
+
+create index if not exists timeline_comments_post_created_idx
+  on timeline_comments (post_id, created_at desc);
 
 create table if not exists media_items (
   id uuid primary key default gen_random_uuid(),
@@ -127,6 +142,27 @@ create table if not exists chat_messages (
   created_at timestamptz default now()
 );
 
+create table if not exists direct_messages (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid references groups(id) on delete cascade,
+  sender_id uuid references profiles(id) on delete cascade,
+  recipient_id uuid references profiles(id) on delete cascade,
+  text text,
+  created_at timestamptz default now()
+);
+
+create index if not exists direct_messages_group_idx
+  on direct_messages (group_id);
+
+create index if not exists direct_messages_sender_idx
+  on direct_messages (sender_id);
+
+create index if not exists direct_messages_recipient_idx
+  on direct_messages (recipient_id);
+
+create index if not exists direct_messages_created_idx
+  on direct_messages (created_at desc);
+
 create table if not exists chat_presence (
   id uuid primary key default gen_random_uuid(),
   group_id uuid references groups(id) on delete cascade,
@@ -136,6 +172,52 @@ create table if not exists chat_presence (
 
 create unique index if not exists chat_presence_unique
   on chat_presence (group_id, user_id);
+
+-- Marketplace (bands)
+create table if not exists band_profiles (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references profiles(id) on delete cascade,
+  name text not null,
+  band_type text,
+  description text,
+  location text,
+  cover_range text,
+  youtube_url text,
+  cover_image_url text,
+  availability jsonb default '[]'::jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create unique index if not exists band_profiles_owner_unique
+  on band_profiles (owner_id);
+
+create table if not exists band_booking_requests (
+  id uuid primary key default gen_random_uuid(),
+  band_id uuid references band_profiles(id) on delete cascade,
+  requester_id uuid references profiles(id) on delete cascade,
+  event_date date,
+  message text,
+  status text default 'pending',
+  created_at timestamptz default now()
+);
+
+create index if not exists band_booking_requests_band_idx
+  on band_booking_requests (band_id);
+
+create index if not exists band_booking_requests_requester_idx
+  on band_booking_requests (requester_id);
+
+create table if not exists band_request_messages (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid references band_booking_requests(id) on delete cascade,
+  sender_id uuid references profiles(id) on delete cascade,
+  message text,
+  created_at timestamptz default now()
+);
+
+create index if not exists band_request_messages_request_idx
+  on band_request_messages (request_id);
 
 -- Reels (short video)
 create table if not exists reels (

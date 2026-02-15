@@ -3,6 +3,12 @@ export interface Env {
   PUBLIC_R2_URL: string;
 }
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 function safeFolder(input: string) {
   return input.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "uploads";
 }
@@ -15,9 +21,15 @@ function extFromName(name: string) {
 }
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) {
-    return new Response("Expected multipart/form-data", { status: 400 });
+    return new Response("Expected multipart/form-data", {
+      status: 400,
+      headers: corsHeaders,
+    });
   }
 
   const form = await request.formData();
@@ -25,7 +37,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const groupId = form.get("groupId")?.toString() || "uploads";
 
   if (!(file instanceof File)) {
-    return new Response("Missing file", { status: 400 });
+    return new Response("Missing file", { status: 400, headers: corsHeaders });
   }
 
   const folder = safeFolder(groupId);
@@ -41,5 +53,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const base = env.PUBLIC_R2_URL.replace(/\/+$/, "");
   const url = `${base}/${key}`;
 
-  return Response.json({ url, key });
+  return Response.json({ url, key }, { headers: corsHeaders });
 };
+
+export const onRequestOptions: PagesFunction = async () =>
+  new Response(null, { status: 204, headers: corsHeaders });

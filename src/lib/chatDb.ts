@@ -83,6 +83,47 @@ export async function getMessages(groupId: string): Promise<ChatMessage[]> {
   }));
 }
 
+export async function getDirectMessages(
+  groupId: string,
+  userId: string,
+  peerId: string,
+): Promise<ChatMessage[]> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("direct_messages")
+    .select("id,group_id,sender_id,recipient_id,text,created_at")
+    .eq("group_id", groupId)
+    .or(
+      `and(sender_id.eq.${userId},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${userId})`,
+    )
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+
+  type DirectRow = {
+    id: string;
+    group_id: string;
+    sender_id: string;
+    recipient_id: string;
+    text: string | null;
+    created_at: string;
+  };
+
+  const rows = (data ?? []) as unknown as DirectRow[];
+  const nameMap = await mapNames(rows.map((r) => r.sender_id));
+
+  return rows.map((row) => ({
+    id: row.id,
+    groupId: row.group_id,
+    text: row.text ?? "",
+    createdAt: new Date(row.created_at).getTime(),
+    createdBy: {
+      userId: row.sender_id,
+      name: nameMap.get(row.sender_id) ?? "Unknown",
+    },
+  }));
+}
+
 /** ✅ NOTE: exported name MUST be addMessage (your hook imports this) */
 export async function addMessage(
   groupId: string,
@@ -96,6 +137,22 @@ export async function addMessage(
     user_id: msg.createdBy.userId,
   });
 
+  if (error) throw error;
+}
+
+export async function addDirectMessage(
+  groupId: string,
+  sender: ChatUser,
+  recipientId: string,
+  text: string,
+) {
+  const client = assertSupabase();
+  const { error } = await client.from("direct_messages").insert({
+    group_id: groupId,
+    sender_id: sender.userId,
+    recipient_id: recipientId,
+    text,
+  });
   if (error) throw error;
 }
 

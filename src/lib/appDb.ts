@@ -605,15 +605,23 @@ export async function deletePlanItem(groupId: string, itemId: string) {
   if (error) throw error;
 }
 
-export async function getTimeline(groupId: string): Promise<TimelinePost[]> {
+export async function getTimeline(
+  groupId?: string,
+  opts: { limit?: number } = {},
+): Promise<TimelinePost[]> {
   const client = assertSupabase();
-  const { data, error } = await client
+  const limit = opts.limit ?? 50;
+  let query = client
     .from("timeline_posts")
     .select(
       "id,group_id,text,image_url,created_by,created_at,profiles:created_by(display_name)",
-    )
-    .eq("group_id", groupId)
-    .order("created_at", { ascending: false });
+    );
+  if (groupId) {
+    query = query.eq("group_id", groupId);
+  }
+  const { data, error } = await query
+    .order("created_at", { ascending: false })
+    .limit(limit);
   if (error) throw error;
 
   type PostRow = {
@@ -1081,16 +1089,38 @@ export async function updateMediaImage(
   if (error) throw error;
 }
 
-export async function readTimelineImages(groupId: string) {
+export async function readTimelineImages(groupId?: string) {
   const client = assertSupabase();
-  const { data, error } = await client
-    .from("timeline_images")
-    .select("post_id,image_url,position,timeline_posts!inner(group_id)")
-    .eq("timeline_posts.group_id", groupId)
-    .order("position", { ascending: true });
+  let query = client.from("timeline_images");
+  if (groupId) {
+    query = query
+      .select("post_id,image_url,position,timeline_posts!inner(group_id)")
+      .eq("timeline_posts.group_id", groupId);
+  } else {
+    query = query.select("post_id,image_url,position");
+  }
+  const { data, error } = await query.order("position", { ascending: true });
 
   if (error) throw error;
 
+  const map: Record<string, string[]> = {};
+  (data ?? []).forEach((row: any) => {
+    const key = row.post_id as string;
+    map[key] = map[key] ?? [];
+    map[key].push(row.image_url as string);
+  });
+  return map;
+}
+
+export async function readTimelineImagesForPosts(postIds: string[]) {
+  const client = assertSupabase();
+  if (postIds.length === 0) return {};
+  const { data, error } = await client
+    .from("timeline_images")
+    .select("post_id,image_url,position")
+    .in("post_id", postIds)
+    .order("position", { ascending: true });
+  if (error) throw error;
   const map: Record<string, string[]> = {};
   (data ?? []).forEach((row: any) => {
     const key = row.post_id as string;
@@ -1299,4 +1329,272 @@ export function subscribeOrderList(
   return () => {
     void client.removeChannel(channel);
   };
+}
+
+// -------- Marketplace (Bands) --------
+export type BandProfile = {
+  id: string;
+  ownerId: string;
+  name: string;
+  bandType?: string | null;
+  description?: string | null;
+  location?: string | null;
+  coverRange?: string | null;
+  youtubeUrl?: string | null;
+  coverImageUrl?: string | null;
+  availability?: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type BandBookingRequest = {
+  id: string;
+  bandId: string;
+  requesterId: string;
+  eventDate?: string | null;
+  message?: string | null;
+  status: string;
+  createdAt: number;
+  band?: Pick<BandProfile, "id" | "name" | "bandType" | "location" | "coverImageUrl">;
+  requesterName?: string | null;
+};
+
+export type BandRequestMessage = {
+  id: string;
+  requestId: string;
+  senderId: string;
+  senderName: string;
+  message: string;
+  createdAt: number;
+};
+
+function mapBandProfile(row: any): BandProfile {
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    name: row.name,
+    bandType: row.band_type ?? null,
+    description: row.description ?? null,
+    location: row.location ?? null,
+    coverRange: row.cover_range ?? null,
+    youtubeUrl: row.youtube_url ?? null,
+    coverImageUrl: row.cover_image_url ?? null,
+    availability: Array.isArray(row.availability) ? row.availability : [],
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at ?? row.created_at).getTime(),
+  };
+}
+
+export async function getBandProfiles(): Promise<BandProfile[]> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("band_profiles")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(mapBandProfile);
+}
+
+export async function getMyBandProfile(
+  ownerId: string,
+): Promise<BandProfile | null> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("band_profiles")
+    .select("*")
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapBandProfile(data) : null;
+}
+
+export async function upsertBandProfile(
+  ownerId: string,
+  payload: {
+    name: string;
+    bandType?: string;
+    description?: string;
+    location?: string;
+    coverRange?: string;
+    youtubeUrl?: string;
+    coverImageUrl?: string | null;
+    availability?: string[];
+  },
+) {
+  const client = assertSupabase();
+  const existing = await getMyBandProfile(ownerId);
+  const now = new Date().toISOString();
+  const data = {
+    owner_id: ownerId,
+    name: payload.name,
+    band_type: payload.bandType ?? null,
+    description: payload.description ?? null,
+    location: payload.location ?? null,
+    cover_range: payload.coverRange ?? null,
+    youtube_url: payload.youtubeUrl ?? null,
+    cover_image_url: payload.coverImageUrl ?? null,
+    availability: payload.availability ?? [],
+    updated_at: now,
+  };
+
+  if (!existing) {
+    const { data: created, error } = await client
+      .from("band_profiles")
+      .insert({ ...data, created_at: now })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapBandProfile(created);
+  }
+
+  const { data: updated, error } = await client
+    .from("band_profiles")
+    .update(data)
+    .eq("id", existing.id)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return mapBandProfile(updated);
+}
+
+export async function createBandRequest(
+  bandId: string,
+  requesterId: string,
+  payload: { eventDate?: string; message?: string },
+) {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("band_booking_requests")
+    .insert({
+      band_id: bandId,
+      requester_id: requesterId,
+      event_date: payload.eventDate ?? null,
+      message: payload.message ?? null,
+      status: "pending",
+    })
+    .select(
+      "id,band_id,requester_id,event_date,message,status,created_at",
+    )
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    bandId: data.band_id,
+    requesterId: data.requester_id,
+    eventDate: data.event_date,
+    message: data.message,
+    status: data.status,
+    createdAt: new Date(data.created_at).getTime(),
+  } as BandBookingRequest;
+}
+
+export async function getBandRequestsIncoming(
+  ownerId: string,
+): Promise<BandBookingRequest[]> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("band_booking_requests")
+    .select(
+      "id,band_id,requester_id,event_date,message,status,created_at,band:band_profiles(id,name,band_type,location,cover_image_url,owner_id),requester:profiles!requester_id(display_name)",
+    )
+    .eq("band.owner_id", ownerId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    bandId: row.band_id,
+    requesterId: row.requester_id,
+    eventDate: row.event_date,
+    message: row.message,
+    status: row.status,
+    createdAt: new Date(row.created_at).getTime(),
+    band: row.band
+      ? {
+          id: row.band.id,
+          name: row.band.name,
+          bandType: row.band.band_type ?? null,
+          location: row.band.location ?? null,
+          coverImageUrl: row.band.cover_image_url ?? null,
+        }
+      : undefined,
+    requesterName: row.requester?.display_name ?? null,
+  }));
+}
+
+export async function getBandRequestsOutgoing(
+  requesterId: string,
+): Promise<BandBookingRequest[]> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("band_booking_requests")
+    .select(
+      "id,band_id,requester_id,event_date,message,status,created_at,band:band_profiles(id,name,band_type,location,cover_image_url,owner_id)",
+    )
+    .eq("requester_id", requesterId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    bandId: row.band_id,
+    requesterId: row.requester_id,
+    eventDate: row.event_date,
+    message: row.message,
+    status: row.status,
+    createdAt: new Date(row.created_at).getTime(),
+    band: row.band
+      ? {
+          id: row.band.id,
+          name: row.band.name,
+          bandType: row.band.band_type ?? null,
+          location: row.band.location ?? null,
+          coverImageUrl: row.band.cover_image_url ?? null,
+        }
+      : undefined,
+  }));
+}
+
+export async function updateBandRequestStatus(
+  requestId: string,
+  status: string,
+) {
+  const client = assertSupabase();
+  const { error } = await client
+    .from("band_booking_requests")
+    .update({ status })
+    .eq("id", requestId);
+  if (error) throw error;
+}
+
+export async function getBandRequestMessages(
+  requestId: string,
+): Promise<BandRequestMessage[]> {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from("band_request_messages")
+    .select("id,request_id,sender_id,message,created_at,profiles:sender_id(display_name)")
+    .eq("request_id", requestId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    requestId: row.request_id,
+    senderId: row.sender_id,
+    senderName: row.profiles?.display_name ?? "Unknown",
+    message: row.message ?? "",
+    createdAt: new Date(row.created_at).getTime(),
+  }));
+}
+
+export async function addBandRequestMessage(
+  requestId: string,
+  senderId: string,
+  message: string,
+) {
+  const client = assertSupabase();
+  const { error } = await client.from("band_request_messages").insert({
+    request_id: requestId,
+    sender_id: senderId,
+    message,
+  });
+  if (error) throw error;
 }

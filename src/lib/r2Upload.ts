@@ -3,7 +3,7 @@ type UploadResponse = {
   key?: string;
 };
 
-const DEFAULT_ENDPOINT = "/api/media/upload";
+const DEFAULT_ENDPOINT = "/media/upload";
 
 export async function uploadImageToR2(file: File, groupId: string) {
   const endpoint =

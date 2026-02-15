@@ -216,7 +216,7 @@ export function Dashboard({ onLogout, onOpenGroup }: DashboardProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-orange-50">
-      <header className="sticky top-4 z-20 mx-auto w-[95%] max-w-6xl rounded-3xl border border-gray-200 bg-white shadow-soft">
+      <header className="sticky top-3 z-20 mx-auto w-[95%] max-w-6xl rounded-3xl border border-gray-200 bg-white shadow-soft">
         <div className="flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-xl font-extrabold text-gray-900 tracking-tight">
@@ -244,7 +244,7 @@ export function Dashboard({ onLogout, onOpenGroup }: DashboardProps) {
         </div>
       </header>
 
-      <main className="mx-auto w-[95%] max-w-6xl py-6">
+      <main className="mx-auto w-[95%] max-w-6xl py-5">
         <Card>
           <div className="grid gap-5 md:grid-cols-2">
             {/* My Groups */}

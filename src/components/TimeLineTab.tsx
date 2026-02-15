@@ -11,6 +11,7 @@ import {
   deletePost as deletePostApi,
   getTimeline,
   readTimelineImages,
+  readTimelineImagesForPosts,
   saveTimelineImages,
   toggleLike as toggleLikeApi,
 } from "../lib/betaDb";
@@ -46,7 +47,15 @@ function timeAgo(ts: number) {
   return `${d}d ago`;
 }
 
-async function fileToDataUrl(file: File, maxWidth = 1200, quality = 0.82) {
+function isVideoUrl(url: string) {
+  return /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(url);
+}
+
+async function imageFileToDataUrl(
+  file: File,
+  maxWidth = 1200,
+  quality = 0.82,
+) {
   if (!file.type.startsWith("image/")) throw new Error("Only images allowed.");
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, maxWidth / bitmap.width);
@@ -141,6 +150,47 @@ function LikeLine({ liked, count }: { liked: boolean; count: number }) {
 }
 
 /** ---------- Images ---------- */
+function MediaThumb({
+  src,
+  onClick,
+  className,
+}: {
+  src: string;
+  onClick: () => void;
+  className: string;
+}) {
+  if (isVideoUrl(src)) {
+    return (
+      <div className="relative h-full w-full">
+        <video
+          src={src}
+          className={className}
+          muted
+          playsInline
+          preload="metadata"
+        />
+        <button
+          type="button"
+          onClick={onClick}
+          className="absolute inset-0 flex items-center justify-center bg-black/10 text-white text-3xl font-extrabold"
+          aria-label="Play video"
+        >
+          ▶
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt="post"
+      className={className}
+      loading="lazy"
+      onClick={onClick}
+    />
+  );
+}
 function SingleImage({
   src,
   onPreview,
@@ -150,12 +200,10 @@ function SingleImage({
 }) {
   return (
     <div className="w-full overflow-hidden rounded-2xl border border-gray-200 timeline-image-card">
-      <img
+      <MediaThumb
         src={src}
-        alt="post"
-        className="w-full h-[320px] sm:h-[520px] lg:h-[680px] object-cover cursor-zoom-in timeline-image"
-        loading="lazy"
         onClick={() => onPreview(0)}
+        className="w-full h-[320px] sm:h-[520px] lg:h-[680px] object-cover cursor-zoom-in timeline-image"
       />
     </div>
   );
@@ -174,12 +222,10 @@ function TwoImages({
           key={idx}
           className="overflow-hidden rounded-2xl border border-gray-200 timeline-image-card"
         >
-          <img
+          <MediaThumb
             src={src}
-            alt={`post-${idx}`}
-            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
-            loading="lazy"
             onClick={() => onPreview(idx)}
+            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
           />
         </div>
       ))}
@@ -196,30 +242,24 @@ function ThreeImages({
   return (
     <div className="grid grid-cols-2 gap-2">
       <div className="col-span-1 row-span-2 overflow-hidden rounded-2xl border border-gray-200 timeline-image-card">
-        <img
+        <MediaThumb
           src={images[0]}
-          alt="post-0"
-          className="w-full h-[380px] sm:h-[528px] object-cover cursor-zoom-in timeline-image"
-          loading="lazy"
           onClick={() => onPreview(0)}
+          className="w-full h-[380px] sm:h-[528px] object-cover cursor-zoom-in timeline-image"
         />
       </div>
       <div className="col-span-1 overflow-hidden rounded-2xl border border-gray-200 timeline-image-card">
-        <img
+        <MediaThumb
           src={images[1]}
-          alt="post-1"
-          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
-          loading="lazy"
           onClick={() => onPreview(1)}
+          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
         />
       </div>
       <div className="col-span-1 overflow-hidden rounded-2xl border border-gray-200 timeline-image-card">
-        <img
+        <MediaThumb
           src={images[2]}
-          alt="post-2"
-          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
-          loading="lazy"
           onClick={() => onPreview(2)}
+          className="w-full h-[180px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
         />
       </div>
     </div>
@@ -239,12 +279,10 @@ function FourImages({
           key={idx}
           className="overflow-hidden rounded-2xl border border-gray-200 timeline-image-card"
         >
-          <img
+          <MediaThumb
             src={src}
-            alt={`post-${idx}`}
-            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
-            loading="lazy"
             onClick={() => onPreview(idx)}
+            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
           />
         </div>
       ))}
@@ -268,12 +306,10 @@ function ManyImages({
           key={idx}
           className="overflow-hidden rounded-2xl border border-gray-200 relative timeline-image-card"
         >
-          <img
+          <MediaThumb
             src={src}
-            alt={`post-${idx}`}
-            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
-            loading="lazy"
             onClick={() => onPreview(idx)}
+            className="w-full h-[200px] sm:h-[260px] object-cover cursor-zoom-in timeline-image"
           />
           {idx === 3 && remaining > 0 && (
             <button
@@ -341,11 +377,13 @@ export default function TimelineTab({
   onMediaRefresh,
   canInteract = true,
   refreshKey,
+  publicFeed = false,
 }: {
   groupId: string;
   onMediaRefresh?: () => void;
   canInteract?: boolean;
   refreshKey?: number;
+  publicFeed?: boolean;
 }) {
   const session = getSession();
 
@@ -372,6 +410,7 @@ export default function TimelineTab({
   const [text, setText] = useState("");
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
 
   // Drafts
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
@@ -402,6 +441,9 @@ export default function TimelineTab({
   const SHARE_MENU_W = 220;
   const SHARE_MENU_H = 222; // header + 4 rows
   const OFFSET = 10;
+
+  const canInteractWithPost = (postGroupId: string) =>
+    canInteract && (!publicFeed || postGroupId === groupId);
 
   function positionSharePopover(postId: string) {
     const btn = shareBtnRefs.current[postId];
@@ -508,10 +550,13 @@ export default function TimelineTab({
     setLoading(true);
     setTimelineError(null);
     try {
-      const [list, images] = await Promise.all([
-        getTimeline(groupId) as unknown as Promise<DbTimelinePost[]>,
-        readTimelineImages(groupId),
-      ]);
+      const list = (await getTimeline(publicFeed ? undefined : groupId, {
+        limit: publicFeed ? 60 : 40,
+      })) as unknown as DbTimelinePost[];
+      const postIds = list.map((p) => p.id);
+      const images = publicFeed
+        ? await readTimelineImagesForPosts(postIds)
+        : await readTimelineImages(groupId);
       setPosts(list);
       setRemoteImages(images);
       setExtra(loadExtra());
@@ -528,14 +573,17 @@ export default function TimelineTab({
   useEffect(() => {
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId, refreshKey]);
+  }, [groupId, refreshKey, publicFeed]);
 
   async function uploadOrPreview(file: File) {
     try {
       return await uploadImageToR2(file, groupId);
     } catch (err) {
       if (import.meta.env.DEV) {
-        return await fileToDataUrl(file, 1100, 0.82);
+        if (file.type.startsWith("image/")) {
+          return await imageFileToDataUrl(file, 1100, 0.82);
+        }
+        return URL.createObjectURL(file);
       }
       throw err;
     }
@@ -550,7 +598,7 @@ export default function TimelineTab({
       setImagePreviews((prev) => [...prev, ...urls]);
       if (fileRef.current) fileRef.current.value = "";
     } catch {
-      alert("Could not upload one of the images. Try again.");
+      alert("Could not upload one of the files. Try again.");
     }
   }
 
@@ -585,7 +633,7 @@ export default function TimelineTab({
       setEditImages((prev) => [...prev, ...urls]);
       if (editFileRef.current) editFileRef.current.value = "";
     } catch {
-      alert("Could not upload one of the images. Try again.");
+      alert("Could not upload one of the files. Try again.");
     }
   }
 
@@ -636,6 +684,7 @@ export default function TimelineTab({
       setText("");
       setImagePreviews([]);
       if (fileRef.current) fileRef.current.value = "";
+      setComposerOpen(false);
 
       await reload();
       onMediaRefresh?.();
@@ -644,15 +693,15 @@ export default function TimelineTab({
     }
   }
 
-  async function toggleLike(postId: string) {
-    if (!canInteract) return;
+  async function toggleLike(postId: string, postGroupId: string) {
+    if (!canInteractWithPost(postGroupId)) return;
     if (!session) return;
     await toggleLikeApi(postId, me.userId);
     await reload();
   }
 
-  async function addComment(postId: string) {
-    if (!canInteract) return;
+  async function addComment(postId: string, postGroupId: string) {
+    if (!canInteractWithPost(postGroupId)) return;
     if (!session) return;
     const t = (commentDrafts[postId] ?? "").trim();
     if (!t) return;
@@ -667,6 +716,7 @@ export default function TimelineTab({
   }
 
   async function deletePost(post: DbTimelinePost) {
+    if (!canInteractWithPost(post.groupId)) return;
     if (!session) return;
     if (post.createdBy.userId !== me.userId) return;
 
@@ -687,8 +737,9 @@ export default function TimelineTab({
     postId: string,
     commentId: string,
     emoji: string,
+    postGroupId: string,
   ) {
-    if (!canInteract) return;
+    if (!canInteractWithPost(postGroupId)) return;
     const db = loadExtra();
     const key = kOf(postId, commentId);
 
@@ -704,8 +755,8 @@ export default function TimelineTab({
     void reload();
   }
 
-  function addReply(postId: string, commentId: string) {
-    if (!canInteract) return;
+  function addReply(postId: string, commentId: string, postGroupId: string) {
+    if (!canInteractWithPost(postGroupId)) return;
     if (!session) return;
     const key = kOf(postId, commentId);
     const t = (replyDrafts[key] ?? "").trim();
@@ -774,80 +825,146 @@ export default function TimelineTab({
       )}
       {/* Composer */}
       {canInteract ? (
-        <Card>
-          <div className="flex items-start gap-3">
-            <UserAvatar userId={me.userId} name={me.name} size={40} />
-            <div className="flex-1">
-              <div className="text-lg font-extrabold text-gray-900">Timeline</div>
-              <p className="mt-1 text-gray-600">
-                Post a status. Add multiple photos. Everyone can comment.
-              </p>
-
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="What's the plan?"
-                className="mt-3 w-full min-h-[110px] rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-              />
-
-              {imagePreviews.length > 0 && (
-                <div className="mt-3">
-                  <div className="text-sm font-semibold text-gray-700 mb-2">
-                    Selected photos • {imagePreviews.length}
-                  </div>
-                  <ImageDisplay
-                    images={imagePreviews}
-                    onPreview={(index) => {
-                      setPreviewImages(imagePreviews);
-                      setPreviewIndex(index);
-                    }}
-                  />
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {imagePreviews.map((_, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => removePreview(idx)}
-                        className="px-3 py-1 rounded-lg border border-gray-300 bg-white text-xs font-medium hover:bg-gray-50"
-                      >
-                        Remove photo {idx + 1}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    id="timeline_images"
-                    className="hidden"
-                    onChange={(e) => onPickImages(e.target.files)}
-                  />
-                  <label
-                    htmlFor="timeline_images"
-                    className="px-4 py-2 rounded-2xl border border-gray-200 bg-white text-sm font-semibold hover:bg-gray-50 shadow-soft cursor-pointer"
-                  >
-                    + Add photos
-                  </label>
-                </div>
-
-                <Button
-                  variant="primary"
-                  onClick={createPost}
-                  disabled={busy || (!text.trim() && imagePreviews.length === 0)}
-                  className="w-full sm:w-auto"
-                >
-                  {busy ? "Posting…" : "Post"}
-                </Button>
-              </div>
+        <>
+          <Card className="p-3 sm:p-5">
+            <div className="flex items-center gap-3">
+              <UserAvatar userId={me.userId} name={me.name} size={36} />
+              <button
+                type="button"
+                className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-left text-sm text-gray-600 hover:bg-gray-100"
+                onClick={() => setComposerOpen(true)}
+              >
+                Post your thoughts...
+              </button>
             </div>
-          </div>
-        </Card>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                onClick={() => {
+                  setComposerOpen(true);
+                  setTimeout(() => fileRef.current?.click(), 0);
+                }}
+              >
+                🎥 Video
+              </button>
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                onClick={() => {
+                  setComposerOpen(true);
+                  setTimeout(() => fileRef.current?.click(), 0);
+                }}
+              >
+                🖼️ Photo
+              </button>
+            </div>
+          </Card>
+
+          {composerOpen &&
+            createPortal(
+              <div
+                className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
+                onClick={() => setComposerOpen(false)}
+              >
+                <div
+                  className="w-full max-w-lg rounded-3xl bg-white p-4 sm:p-6 shadow-soft"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-lg font-extrabold text-gray-900">
+                      Create a post
+                    </div>
+                    <button
+                      type="button"
+                      className="h-8 w-8 rounded-full border border-gray-200 bg-white text-sm"
+                      onClick={() => setComposerOpen(false)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-3">
+                    <UserAvatar userId={me.userId} name={me.name} size={40} />
+                    <div className="text-sm font-semibold text-gray-900">
+                      {me.name}
+                    </div>
+                  </div>
+
+                  <textarea
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    placeholder="Post your thoughts..."
+                    className="mt-4 w-full min-h-[120px] rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                  />
+
+                  <div className="mt-3 flex items-center gap-3">
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      id="timeline_images"
+                      className="hidden"
+                      onChange={(e) => onPickImages(e.target.files)}
+                    />
+                    <button
+                      type="button"
+                      className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      🖼️ Photo / 🎥 Video
+                    </button>
+                  </div>
+
+                  {imagePreviews.length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2">
+                        Selected files • {imagePreviews.length}
+                      </div>
+                      <ImageDisplay
+                        images={imagePreviews}
+                        onPreview={(index) => {
+                          setPreviewImages(imagePreviews);
+                          setPreviewIndex(index);
+                        }}
+                      />
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {imagePreviews.map((_, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => removePreview(idx)}
+                            className="px-3 py-1 rounded-lg border border-gray-300 bg-white text-xs font-medium hover:bg-gray-50"
+                          >
+                            Remove file {idx + 1}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex items-center justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => setComposerOpen(false)}
+                      className="px-4"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={createPost}
+                      disabled={busy || (!text.trim() && imagePreviews.length === 0)}
+                    >
+                      {busy ? "Posting…" : "Post"}
+                    </Button>
+                  </div>
+                </div>
+              </div>,
+              document.body,
+            )}
+        </>
       ) : (
         <Card>
           <div className="text-sm text-gray-600">
@@ -866,9 +983,10 @@ export default function TimelineTab({
           <p className="mt-2 text-gray-600">Be the first to post a status 👇</p>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {posts.map((p) => {
             const liked = (p.likes ?? []).includes(me.userId);
+            const postCanInteract = canInteractWithPost(p.groupId);
 
             const multi = remoteImages[p.id] ?? [];
             const images =
@@ -878,9 +996,9 @@ export default function TimelineTab({
             const shareCount = extra.shareCounts?.[p.id] ?? 0;
 
             return (
-              <Card key={p.id} className="overflow-hidden">
+              <Card key={p.id} className="overflow-hidden p-4 sm:p-5">
                 {/* Header */}
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 flex items-start gap-3">
                     <UserAvatar
                       userId={p.createdBy.userId}
@@ -895,10 +1013,15 @@ export default function TimelineTab({
                         <div className="text-xs text-gray-500">
                           {timeAgo(p.createdAt)}
                         </div>
+                        {publicFeed && p.groupId !== groupId && (
+                          <span className="text-[10px] uppercase tracking-wide rounded-full bg-gray-100 px-2 py-1 text-gray-600">
+                            Other group
+                          </span>
+                        )}
                       </div>
 
                     {editingId === p.id ? (
-                      <div className="mt-2 space-y-3">
+                      <div className="mt-2 space-y-2">
                         <textarea
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}
@@ -910,7 +1033,7 @@ export default function TimelineTab({
                           <input
                             ref={editFileRef}
                             type="file"
-                            accept="image/*"
+                            accept="image/*,video/*"
                             multiple
                             id={`edit_images_${p.id}`}
                             className="hidden"
@@ -920,7 +1043,7 @@ export default function TimelineTab({
                             htmlFor={`edit_images_${p.id}`}
                             className="px-4 py-2 rounded-2xl border border-gray-200 bg-white text-sm font-semibold hover:bg-gray-50 shadow-soft cursor-pointer"
                           >
-                            + Add photos
+                            + Add files
                           </label>
                           {editImages.length > 0 && (
                             <Button
@@ -1046,7 +1169,7 @@ export default function TimelineTab({
                 )}
 
                 {/* Comments */}
-                <div className="mt-3 space-y-2">
+                <div className="mt-2 space-y-2">
                   {(p.comments ?? []).map((c) => {
                     const key = kOf(p.id, c.id);
                     const replies = extra.replies?.[key] ?? [];
@@ -1057,7 +1180,7 @@ export default function TimelineTab({
                     );
 
                     return (
-                      <div key={c.id} className="rounded-2xl bg-gray-50 p-3">
+                      <div key={c.id} className="rounded-2xl bg-gray-50 p-2.5">
                         <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-2 min-w-0">
                             <UserAvatar
@@ -1131,26 +1254,40 @@ export default function TimelineTab({
                         <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
                           <button
                             type="button"
+                            disabled={!postCanInteract}
                             onClick={() =>
+                              postCanInteract &&
                               setOpenReactionBar((prev) => ({
                                 ...prev,
                                 [key]: !prev[key],
                               }))
                             }
-                            className="text-blue-600 font-semibold hover:underline"
+                            className={[
+                              "text-blue-600 font-semibold hover:underline",
+                              !postCanInteract
+                                ? "opacity-60 cursor-not-allowed"
+                                : "",
+                            ].join(" ")}
                           >
                             React
                           </button>
 
                           <button
                             type="button"
+                            disabled={!postCanInteract}
                             onClick={() =>
+                              postCanInteract &&
                               setReplyDrafts((prev) => ({
                                 ...prev,
                                 [key]: prev[key] ?? "",
                               }))
                             }
-                            className="text-blue-600 font-semibold hover:underline"
+                            className={[
+                              "text-blue-600 font-semibold hover:underline",
+                              !postCanInteract
+                                ? "opacity-60 cursor-not-allowed"
+                                : "",
+                            ].join(" ")}
                           >
                             Reply
                           </button>
@@ -1164,7 +1301,12 @@ export default function TimelineTab({
                                 key={emoji}
                                 type="button"
                                 onClick={() => {
-                                  toggleCommentReaction(p.id, c.id, emoji);
+                                  toggleCommentReaction(
+                                    p.id,
+                                    c.id,
+                                    emoji,
+                                    p.groupId,
+                                  );
                                   setOpenReactionBar((prev) => ({
                                     ...prev,
                                     [key]: false,
@@ -1180,7 +1322,7 @@ export default function TimelineTab({
 
                         {/* Replies */}
                         {replies.length > 0 && (
-                          <div className="mt-3 space-y-2">
+                          <div className="mt-2.5 space-y-2">
                             {replies.map((r) => (
                               <div
                                 key={r.id}
@@ -1211,7 +1353,7 @@ export default function TimelineTab({
 
                         {/* Reply input */}
                         {replyDrafts[key] !== undefined && (
-                          <div className="mt-3 sm:ml-6 flex flex-col sm:flex-row gap-2">
+                          <div className="mt-2.5 sm:ml-6 flex flex-col sm:flex-row gap-2">
                             <input
                               value={replyDrafts[key]}
                               onChange={(e) =>
@@ -1221,18 +1363,19 @@ export default function TimelineTab({
                                 }))
                               }
                               placeholder={`Reply to ${c.createdBy.name}…`}
+                              disabled={!postCanInteract}
                               className="w-full flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" && !e.shiftKey) {
                                   e.preventDefault();
-                                  addReply(p.id, c.id);
+                                  addReply(p.id, c.id, p.groupId);
                                 }
                               }}
                             />
                             <Button
                               variant="primary"
-                              onClick={() => addReply(p.id, c.id)}
-                              disabled={!replyDrafts[key].trim()}
+                              onClick={() => addReply(p.id, c.id, p.groupId)}
+                              disabled={!replyDrafts[key].trim() || !postCanInteract}
                               className="w-full sm:w-auto"
                             >
                               Send
@@ -1254,21 +1397,25 @@ export default function TimelineTab({
                           [p.id]: e.target.value,
                         }))
                       }
-                      placeholder="Write a comment…"
-                      disabled={!canInteract}
+                      placeholder={
+                        postCanInteract
+                          ? "Write a comment…"
+                          : "Read-only for other groups"
+                      }
+                      disabled={!postCanInteract}
                       className="w-full flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
-                          addComment(p.id);
+                          addComment(p.id, p.groupId);
                         }
                       }}
                     />
                     <Button
                       variant="primary"
-                      onClick={() => addComment(p.id)}
+                      onClick={() => addComment(p.id, p.groupId)}
                       disabled={
-                        !canInteract || !(commentDrafts[p.id] ?? "").trim()
+                        !postCanInteract || !(commentDrafts[p.id] ?? "").trim()
                       }
                       className="w-full sm:w-auto"
                     >
@@ -1278,7 +1425,7 @@ export default function TimelineTab({
                 </div>
 
                 {/* Stats */}
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <LikeLine liked={liked} count={(p.likes ?? []).length} />
                   <div className="text-sm text-gray-600">
                     {(p.comments ?? []).length} comment
@@ -1289,19 +1436,19 @@ export default function TimelineTab({
                 </div>
 
                 {/* Like/Comment/Share row */}
-                <div className="mt-3 pt-2 border-t border-gray-200/50">
+                <div className="mt-2 pt-2 border-t border-gray-200/50">
                   <div className="grid grid-cols-3 gap-2 text-sm font-semibold sm:flex sm:items-center sm:justify-between">
                     {/* Like */}
                     <button
                       type="button"
-                      onClick={() => toggleLike(p.id)}
-                      disabled={!canInteract}
+                      onClick={() => toggleLike(p.id, p.groupId)}
+                      disabled={!postCanInteract}
                       className={[
                         "flex items-center justify-center gap-1 px-2 py-2 rounded-xl transition hover:bg-gray-50 w-full sm:w-auto",
                         liked
                           ? "text-blue-600"
                           : "text-gray-600 hover:text-blue-600",
-                        !canInteract ? "opacity-60 cursor-not-allowed" : "",
+                        !postCanInteract ? "opacity-60 cursor-not-allowed" : "",
                       ].join(" ")}
                     >
                       <span className="text-lg">{liked ? "❤️" : "🤍"}</span>
@@ -1311,9 +1458,9 @@ export default function TimelineTab({
                     {/* Comment */}
                     <button
                       type="button"
-                      disabled={!canInteract}
+                      disabled={!postCanInteract}
                       onClick={() => {
-                        if (!canInteract) return;
+                        if (!postCanInteract) return;
                         const el = document.getElementById(`cbox-${p.id}`);
                         el?.scrollIntoView({
                           behavior: "smooth",
@@ -1323,7 +1470,7 @@ export default function TimelineTab({
                       }}
                       className={[
                         "flex items-center justify-center gap-1 px-2 py-2 rounded-xl text-gray-600 hover:text-blue-600 hover:bg-gray-50 transition w-full sm:w-auto",
-                        !canInteract ? "opacity-60 cursor-not-allowed" : "",
+                        !postCanInteract ? "opacity-60 cursor-not-allowed" : "",
                       ].join(" ")}
                     >
                       <span className="text-lg">💬</span>
@@ -1453,12 +1600,23 @@ export default function TimelineTab({
             onClick={() => setPreviewImages(null)}
           >
             <div className="relative max-w-[95vw] max-h-[90vh]">
-              <img
-                src={previewImages[previewIndex]}
-                alt="preview"
-                className="max-h-[90vh] max-w-[95vw] rounded-2xl object-contain"
-                onClick={(e) => e.stopPropagation()}
-              />
+              {isVideoUrl(previewImages[previewIndex]) ? (
+                <video
+                  src={previewImages[previewIndex]}
+                  className="max-h-[90vh] max-w-[95vw] rounded-2xl object-contain"
+                  controls
+                  autoPlay
+                  playsInline
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <img
+                  src={previewImages[previewIndex]}
+                  alt="preview"
+                  className="max-h-[90vh] max-w-[95vw] rounded-2xl object-contain"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              )}
               {previewImages.length > 1 && (
                 <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between px-2">
                   <button

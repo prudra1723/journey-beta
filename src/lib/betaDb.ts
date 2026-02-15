@@ -32,6 +32,7 @@ export {
   addComment,
   deletePost,
   readTimelineImages,
+  readTimelineImagesForPosts,
   saveTimelineImages,
   readMedia,
   addMedia,

@@ -172,7 +172,7 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-orange-50">
-      <header className="sticky top-4 z-20 mx-auto w-[95%] max-w-5xl rounded-2xl border border-gray-200 bg-white shadow-md">
+      <header className="sticky top-3 z-20 mx-auto w-[95%] max-w-5xl rounded-2xl border border-gray-200 bg-white shadow-md">
         <div className="flex items-center justify-between px-4 py-4">
           <div className="font-extrabold tracking-tight text-gray-900">
             Journey
@@ -180,7 +180,7 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
         </div>
       </header>
 
-      <main className="mx-auto flex min-h-[calc(100vh-90px)] w-[95%] max-w-5xl items-center justify-center py-10">
+      <main className="mx-auto flex min-h-[calc(100vh-90px)] w-[95%] max-w-5xl items-center justify-center py-6">
         <div className="w-full max-w-xl">
           <Card className="p-6">
             <div className="text-3xl font-extrabold text-gray-900">

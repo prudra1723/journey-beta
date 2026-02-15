@@ -534,42 +534,11 @@ export function HeaderDrawer({
                       Timeline visibility
                     </div>
                     <div className="mt-1 text-xs text-gray-500">
-                      When public, anyone logged in can view this group’s
-                      timeline. Only members can post, comment, or like.
+                      Timeline is public across all groups. Anyone logged in can
+                      view posts; only members can post, comment, or like.
                     </div>
-                    <div className="mt-3 flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!canManageGroup) return;
-                          const next = !meta.timelinePublic;
-                          setMeta((prev) => ({
-                            ...prev,
-                            timelinePublic: next,
-                          }));
-                          updateGroupMeta(groupId, {
-                            timelinePublic: next,
-                          }).then(() => onMetaChange?.());
-                        }}
-                        className={[
-                          "h-9 w-16 rounded-full border transition relative",
-                          meta.timelinePublic
-                            ? "bg-blue-600 border-blue-600"
-                            : "bg-gray-200 border-gray-300",
-                          !canManageGroup ? "opacity-60 cursor-not-allowed" : "",
-                        ].join(" ")}
-                        aria-label="Toggle public timeline"
-                      >
-                        <span
-                          className={[
-                            "absolute top-1 h-7 w-7 rounded-full bg-white shadow",
-                            meta.timelinePublic ? "left-8" : "left-1",
-                          ].join(" ")}
-                        />
-                      </button>
-                      <div className="text-sm font-semibold text-gray-700">
-                        {meta.timelinePublic ? "Public" : "Group only"}
-                      </div>
+                    <div className="mt-3 inline-flex items-center rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
+                      Public
                     </div>
                   </div>
 

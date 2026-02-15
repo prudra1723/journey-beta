@@ -10,7 +10,11 @@ alter table timeline_likes enable row level security;
 alter table timeline_comments enable row level security;
 alter table media_items enable row level security;
 alter table chat_messages enable row level security;
+alter table direct_messages enable row level security;
 alter table chat_presence enable row level security;
+alter table band_profiles enable row level security;
+alter table band_booking_requests enable row level security;
+alter table band_request_messages enable row level security;
 alter table reels enable row level security;
 alter table reel_likes enable row level security;
 alter table reel_comments enable row level security;
@@ -137,13 +141,11 @@ create policy "timeline_posts_member_access"
     where gm.group_id = timeline_posts.group_id and gm.user_id = auth.uid()
   ));
 
+drop policy if exists "timeline_posts_public_read" on timeline_posts;
 create policy "timeline_posts_public_read"
   on timeline_posts for select
   to authenticated
-  using (exists (
-    select 1 from groups g
-    where g.id = timeline_posts.group_id and g.timeline_public = true
-  ));
+  using (true);
 
 create policy "timeline_images_member_access"
   on timeline_images for all
@@ -158,14 +160,11 @@ create policy "timeline_images_member_access"
     where gm.group_id = tp.group_id and gm.user_id = auth.uid()
   ));
 
+drop policy if exists "timeline_images_public_read" on timeline_images;
 create policy "timeline_images_public_read"
   on timeline_images for select
   to authenticated
-  using (exists (
-    select 1 from groups g
-    join timeline_posts tp on tp.id = timeline_images.post_id
-    where g.id = tp.group_id and g.timeline_public = true
-  ));
+  using (true);
 
 create policy "timeline_comments_member_access"
   on timeline_comments for all
@@ -180,14 +179,11 @@ create policy "timeline_comments_member_access"
     where gm.group_id = tp.group_id and gm.user_id = auth.uid()
   ));
 
+drop policy if exists "timeline_comments_public_read" on timeline_comments;
 create policy "timeline_comments_public_read"
   on timeline_comments for select
   to authenticated
-  using (exists (
-    select 1 from groups g
-    join timeline_posts tp on tp.id = timeline_comments.post_id
-    where g.id = tp.group_id and g.timeline_public = true
-  ));
+  using (true);
 
 create policy "timeline_likes_member_access"
   on timeline_likes for all
@@ -202,14 +198,11 @@ create policy "timeline_likes_member_access"
     where gm.group_id = tp.group_id and gm.user_id = auth.uid()
   ));
 
+drop policy if exists "timeline_likes_public_read" on timeline_likes;
 create policy "timeline_likes_public_read"
   on timeline_likes for select
   to authenticated
-  using (exists (
-    select 1 from groups g
-    join timeline_posts tp on tp.id = timeline_likes.post_id
-    where g.id = tp.group_id and g.timeline_public = true
-  ));
+  using (true);
 
 -- Media: group-only (default), shared (any auth), private (owner)
 create policy "media_select"
@@ -246,6 +239,34 @@ create policy "chat_messages_member_access"
     where gm.group_id = chat_messages.group_id and gm.user_id = auth.uid()
   ));
 
+-- Direct messages: only sender/recipient within group
+create policy "direct_messages_select_participants"
+  on direct_messages for select
+  using (
+    auth.uid() in (sender_id, recipient_id)
+    and exists (
+      select 1 from group_members gm
+      where gm.group_id = direct_messages.group_id
+        and gm.user_id = auth.uid()
+    )
+  );
+
+create policy "direct_messages_insert_sender"
+  on direct_messages for insert
+  with check (
+    auth.uid() = sender_id
+    and exists (
+      select 1 from group_members gm
+      where gm.group_id = direct_messages.group_id
+        and gm.user_id = sender_id
+    )
+    and exists (
+      select 1 from group_members gm
+      where gm.group_id = direct_messages.group_id
+        and gm.user_id = recipient_id
+    )
+  );
+
 create policy "chat_presence_member_access"
   on chat_presence for all
   using (exists (
@@ -256,6 +277,76 @@ create policy "chat_presence_member_access"
     select 1 from group_members gm
     where gm.group_id = chat_presence.group_id and gm.user_id = auth.uid()
   ));
+
+-- Marketplace: band profiles (public read)
+create policy "band_profiles_select_all"
+  on band_profiles for select
+  using (true);
+
+create policy "band_profiles_insert_owner"
+  on band_profiles for insert
+  with check (auth.uid() = owner_id);
+
+create policy "band_profiles_update_owner"
+  on band_profiles for update
+  using (auth.uid() = owner_id);
+
+create policy "band_profiles_delete_owner"
+  on band_profiles for delete
+  using (auth.uid() = owner_id);
+
+-- Booking requests: only requester + band owner
+create policy "band_requests_select_participants"
+  on band_booking_requests for select
+  using (
+    requester_id = auth.uid()
+    or exists (
+      select 1 from band_profiles bp
+      where bp.id = band_booking_requests.band_id
+        and bp.owner_id = auth.uid()
+    )
+  );
+
+create policy "band_requests_insert_requester"
+  on band_booking_requests for insert
+  with check (auth.uid() = requester_id);
+
+create policy "band_requests_update_participants"
+  on band_booking_requests for update
+  using (
+    requester_id = auth.uid()
+    or exists (
+      select 1 from band_profiles bp
+      where bp.id = band_booking_requests.band_id
+        and bp.owner_id = auth.uid()
+    )
+  );
+
+-- Request messages: only participants
+create policy "band_request_messages_select_participants"
+  on band_request_messages for select
+  using (
+    exists (
+      select 1
+      from band_booking_requests r
+      join band_profiles bp on bp.id = r.band_id
+      where r.id = band_request_messages.request_id
+        and (r.requester_id = auth.uid() or bp.owner_id = auth.uid())
+    )
+  );
+
+create policy "band_request_messages_insert_participants"
+  on band_request_messages for insert
+  with check (
+    sender_id = auth.uid()
+    and exists (
+      select 1
+      from band_booking_requests r
+      join band_profiles bp on bp.id = r.band_id
+      where r.id = band_request_messages.request_id
+        and (r.requester_id = auth.uid() or bp.owner_id = auth.uid())
+    )
+  );
 
 -- Reels: members only
 create policy "reels_member_access"

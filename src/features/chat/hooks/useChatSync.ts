@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, ChatUser } from "../../../lib/chatDb";
 import {
   addMessage,
+  addDirectMessage,
+  getDirectMessages,
   getKnownMembers,
   getMessages,
   getOnlineMembers,
@@ -26,10 +28,14 @@ export function useChatSync({
   groupId,
   me,
   open,
+  mode = "group",
+  peerId,
 }: {
   groupId: string;
   me: ChatUser | null;
   open: boolean;
+  mode?: "group" | "direct";
+  peerId?: string | null;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [knownMembers, setKnownMembers] = useState<ChatUser[]>([]);
@@ -40,8 +46,9 @@ export function useChatSync({
   const lastNotifiedIdRef = useRef<string | null>(null);
   const lastSeenKey = useMemo(() => {
     if (!groupId || !me?.userId) return "";
-    return `journey_beta_chat_last_seen:${groupId}:${me.userId}`;
-  }, [groupId, me?.userId]);
+    const peerKey = mode === "direct" ? peerId ?? "none" : "group";
+    return `journey_beta_chat_last_seen:${groupId}:${me.userId}:${mode}:${peerKey}`;
+  }, [groupId, me?.userId, mode, peerId]);
 
   useEffect(() => {
     if (!lastSeenKey) return;
@@ -67,9 +74,20 @@ export function useChatSync({
     }
   }
 
+  const canFetchMessages =
+    mode === "group" ? true : Boolean(groupId && me?.userId && peerId);
+
+  async function fetchMessages() {
+    if (!canFetchMessages) return [] as ChatMessage[];
+    if (mode === "direct") {
+      return getDirectMessages(groupId, me!.userId, peerId!);
+    }
+    return getMessages(groupId);
+  }
+
   async function refreshAll() {
     const [msgs, members, on] = await Promise.all([
-      getMessages(groupId),
+      fetchMessages(),
       getKnownMembers(groupId),
       getOnlineMembers(groupId),
     ]);
@@ -84,7 +102,7 @@ export function useChatSync({
   }
 
   async function refreshMessagesOnly({ notify }: { notify: boolean }) {
-    const msgs = await getMessages(groupId);
+    const msgs = await fetchMessages();
     setMessages(msgs);
 
     if (!msgs.length) return;
@@ -113,14 +131,14 @@ export function useChatSync({
     if (!groupId || !open) return;
     refreshAll().catch((e) => setToast(e?.message ?? "Chat load failed"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId, open]);
+  }, [groupId, open, mode, peerId, me?.userId]);
 
   // When opened, mark read and refresh
   useEffect(() => {
     if (!open) return;
     refreshAll().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, mode, peerId, me?.userId]);
 
   // Poll messages: faster when open, slower when closed (to update unread + toast)
   useEffect(() => {
@@ -137,7 +155,7 @@ export function useChatSync({
     const t = window.setInterval(fn, intervalMs);
     return () => window.clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId, open]);
+  }, [groupId, open, mode, peerId, me?.userId]);
 
   // Presence heartbeat (only when we have a session)
   useEffect(() => {
@@ -167,20 +185,28 @@ export function useChatSync({
       setToast("Please set your name / login first.");
       return;
     }
+    if (mode === "direct" && !peerId) {
+      setToast("Pick a member to message.");
+      return;
+    }
 
     try {
-      await addMessage(groupId, {
-        text: payload.text ?? "",
-        createdBy: me,
-        imageDataUrl: payload.imageDataUrl,
-        replyTo: payload.replyTo,
-        reactions: {},
-        poll: payload.poll,
-        mentions: payload.mentions,
-      });
+      if (mode === "direct") {
+        await addDirectMessage(groupId, me, peerId!, payload.text ?? "");
+      } else {
+        await addMessage(groupId, {
+          text: payload.text ?? "",
+          createdBy: me,
+          imageDataUrl: payload.imageDataUrl,
+          replyTo: payload.replyTo,
+          reactions: {},
+          poll: payload.poll,
+          mentions: payload.mentions,
+        });
+      }
 
       // optimistic refresh
-      const msgs = await getMessages(groupId);
+      const msgs = await fetchMessages();
       setMessages(msgs);
       if (open && msgs.length) {
         persistLastSeen(msgs[msgs.length - 1].createdAt);
