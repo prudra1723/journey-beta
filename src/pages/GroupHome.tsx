@@ -2035,37 +2035,46 @@ export function GroupHome({
             <Card>
               <div>
               <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
-                <div>
-                  <div className="text-xl font-extrabold text-gray-900 tracking-tight">
-                    Trip Plan • {dayTitle(activeDay)}
-                  </div>
-                  <p className="mt-1 text-gray-600">
-                    {groupTypeLabel} plan with Dinner • Facilities • Notes.
-                  </p>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <label className="text-xs font-semibold text-gray-600">
-                      Pick date
-                    </label>
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setSelectedDate(v);
-                        const key = dayKeyFromDate(v);
-                        if (key) handleActiveDayChange(key);
-                      }}
-                      className="rounded-2xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                <div className="flex items-start gap-3">
+                  <div className="h-12 w-12 rounded-2xl border border-gray-200 bg-white flex items-center justify-center shadow-soft shrink-0">
+                    <img
+                      src={logo}
+                      alt="Journey"
+                      className="h-8 w-8 object-contain"
                     />
-                    {selectedDate && (
-                      <button
-                        type="button"
-                        className="text-xs font-semibold text-blue-600 hover:underline"
-                        onClick={() => setSelectedDate("")}
-                      >
-                        Clear
-                      </button>
-                    )}
+                  </div>
+                  <div>
+                    <div className="text-xl font-extrabold text-gray-900 tracking-tight">
+                      Trip Plan • {dayTitle(activeDay)}
+                    </div>
+                    <p className="mt-1 text-gray-600">
+                      {groupTypeLabel} plan with Dinner • Facilities • Notes.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <label className="text-xs font-semibold text-gray-600">
+                        Pick date
+                      </label>
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSelectedDate(v);
+                          const key = dayKeyFromDate(v);
+                          if (key) handleActiveDayChange(key);
+                        }}
+                        className="rounded-2xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                      />
+                      {selectedDate && (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-blue-600 hover:underline"
+                          onClick={() => setSelectedDate("")}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
