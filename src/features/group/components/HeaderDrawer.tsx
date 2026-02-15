@@ -26,7 +26,7 @@ import {
   uploadProfileCover,
   type Profile,
 } from "../../../lib/profileDb";
-import { clearSession } from "../../../lib/session";
+import { clearLastGroupId, clearSession } from "../../../lib/session";
 import { signOut } from "../../../lib/auth";
 import {
   clearGroupHeaderImage,
@@ -923,6 +923,7 @@ export function HeaderDrawer({
                             onClick={() => {
                               void signOut();
                               clearSession();
+                              clearLastGroupId();
                               window.location.href = "/";
                             }}
                             className="w-full sm:w-auto"

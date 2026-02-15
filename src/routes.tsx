@@ -1,7 +1,7 @@
 // src/routes.tsx
 import type { ReactElement } from "react";
 import { Navigate, createBrowserRouter } from "react-router-dom";
-import { getSession } from "./lib/session";
+import { getLastGroupId, getSession } from "./lib/session";
 
 import StartPage from "./pages/StartPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -19,7 +19,10 @@ export const router = createBrowserRouter([
   {
     path: "/",
     element: getSession() ? (
-      <Navigate to="/dashboard" replace />
+      <Navigate
+        to={getLastGroupId() ? `/g/${getLastGroupId()}` : "/dashboard"}
+        replace
+      />
     ) : (
       <StartPage />
     ),

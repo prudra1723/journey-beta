@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import type { PlanDayKey, PlanItem } from "../lib/betaDb";
-import { getSession } from "../lib/session";
+import { getSession, setLastGroupId } from "../lib/session";
 import ChatWidget from "../components/ChatWidget";
 import TimelineTab from "../components/TimeLineTab";
 import MarketplaceTab from "../components/MarketplaceTab";
@@ -407,6 +407,11 @@ export function GroupHome({
       setTab("timeline");
     }
   }, [isViewer, tab]);
+
+  useEffect(() => {
+    if (!groupId) return;
+    setLastGroupId(groupId);
+  }, [groupId]);
 
 
   const [activeDay, setActiveDay] = useState<PlanDayKey>(() => {
