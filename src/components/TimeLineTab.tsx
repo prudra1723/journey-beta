@@ -17,6 +17,7 @@ import {
 import { uploadImageToR2 } from "../lib/r2Upload";
 
 import { getSession } from "../lib/session";
+import { getAuthSession } from "../lib/auth";
 
 type DbTimelinePost = {
   id: string;
@@ -385,13 +386,30 @@ export default function TimelineTab({
   publicFeed?: boolean;
 }) {
   const session = getSession();
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getAuthSession()
+      .then(({ data }) => {
+        if (!active) return;
+        setAuthUserId(data?.session?.user?.id ?? null);
+      })
+      .catch(() => {
+        if (!active) return;
+        setAuthUserId(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const me = useMemo(() => {
     return {
-      userId: session?.userId ?? "unknown",
+      userId: authUserId ?? session?.userId ?? "unknown",
       name: session?.name ?? "Unknown",
     };
-  }, [session]);
+  }, [authUserId, session]);
 
   const [posts, setPosts] = useState<DbTimelinePost[]>([]);
   const [extra, setExtra] = useState<ExtraDb>(() => loadExtra());
