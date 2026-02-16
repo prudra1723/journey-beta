@@ -56,6 +56,9 @@ export default function ChatWidget({
   const [nameError, setNameError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioReadyRef = useRef(false);
 
   const mode = modeProp ?? "group";
   const {
@@ -65,8 +68,67 @@ export default function ChatWidget({
     unreadCount,
     toast,
     setToast,
+    lastIncoming,
+    clearIncoming,
     sendMessage,
   } = useChatSync({ groupId, me, open, mode, peerId });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 640px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const ensureAudio = async () => {
+    if (audioReadyRef.current) {
+      try {
+        if (audioCtxRef.current?.state === "suspended") {
+          await audioCtxRef.current.resume();
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    try {
+      const ctx = new AudioContext();
+      audioCtxRef.current = ctx;
+      await ctx.resume();
+      audioReadyRef.current = true;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const playTone = (freq: number, duration = 0.12, volume = 0.18) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    gain.gain.value = volume;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      ctx.currentTime + duration,
+    );
+    osc.stop(ctx.currentTime + duration);
+  };
+
+  const playSendSound = () => {
+    playTone(520, 0.08, 0.14);
+  };
+
+  const playNotifySound = () => {
+    playTone(880, 0.14, 0.18);
+  };
 
   useEffect(() => {
     if (!editingName) setNameDraft(groupName ?? "");
@@ -90,6 +152,20 @@ export default function ChatWidget({
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     });
   }, [open, messages.length]);
+
+  useEffect(() => {
+    if (open) {
+      void ensureAudio();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!lastIncoming) return;
+    ensureAudio().then((ok) => {
+      if (ok) playNotifySound();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastIncoming?.id]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -161,18 +237,37 @@ export default function ChatWidget({
     const msg = text.trim();
     if (!msg || !me) return;
     setText("");
+    await ensureAudio();
     await sendMessage({ text: msg });
+    playSendSound();
   }
 
   return (
     <>
-      {toast && <ChatToast text={toast} onClose={() => setToast(null)} />}
+      {toast && (
+        <ChatToast
+          text={toast}
+          isMobile={isMobile}
+          onOpen={() => {
+            clearIncoming();
+            setToast(null);
+            setOpen(true);
+          }}
+          onClose={() => {
+            clearIncoming();
+            setToast(null);
+          }}
+        />
+      )}
 
       {showFab && (
         <ChatFab
           unreadCount={unreadCount}
           open={open}
-          onToggle={() => setOpen((v) => !v)}
+          onToggle={() => {
+            ensureAudio();
+            setOpen((v) => !v);
+          }}
         />
       )}
 

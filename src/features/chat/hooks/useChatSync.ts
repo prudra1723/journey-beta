@@ -41,6 +41,7 @@ export function useChatSync({
   const [knownMembers, setKnownMembers] = useState<ChatUser[]>([]);
   const [online, setOnline] = useState<ChatUser[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [lastIncoming, setLastIncoming] = useState<ChatMessage | null>(null);
 
   const lastSeenAtRef = useRef<number>(0);
   const lastNotifiedIdRef = useRef<string | null>(null);
@@ -123,6 +124,7 @@ export function useChatSync({
     ) {
       lastNotifiedIdRef.current = latest.id;
       setToast(latest.text || `${latest.createdBy.name} sent a message`);
+      setLastIncoming(latest);
     }
   }
 
@@ -250,6 +252,8 @@ export function useChatSync({
     unreadCount,
     toast,
     setToast,
+    lastIncoming,
+    clearIncoming: () => setLastIncoming(null),
     sendMessage,
     toggleReactionUI,
     votePollUI,
