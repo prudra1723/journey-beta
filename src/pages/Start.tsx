@@ -90,8 +90,7 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
       // ✅ Reuse existing session if present; only create a new anon session if needed
       setStep("auth:checkSession");
       const sessionRes = await withTimeout(getAuthSession(), "Session check");
-      const existingUserId =
-        sessionRes?.data?.session?.user?.id ?? sessionRes?.data?.user?.id ?? null;
+      const existingUserId = sessionRes?.data?.session?.user?.id ?? null;
 
       let authUserId = existingUserId;
       if (!authUserId) {
