@@ -24,6 +24,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
+  if (!env.MEDIA_BUCKET) {
+    return new Response("R2 bucket binding (MEDIA_BUCKET) is missing", {
+      status: 500,
+      headers: corsHeaders,
+    });
+  }
+  if (!env.PUBLIC_R2_URL) {
+    return new Response("PUBLIC_R2_URL is missing", {
+      status: 500,
+      headers: corsHeaders,
+    });
+  }
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) {
     return new Response("Expected multipart/form-data", {
@@ -32,28 +44,34 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     });
   }
 
-  const form = await request.formData();
-  const file = form.get("file");
-  const groupId = form.get("groupId")?.toString() || "uploads";
+  try {
+    const form = await request.formData();
+    const file = form.get("file");
+    const groupId = form.get("groupId")?.toString() || "uploads";
 
-  if (!(file instanceof File)) {
-    return new Response("Missing file", { status: 400, headers: corsHeaders });
+    if (!(file instanceof File)) {
+      return new Response("Missing file", { status: 400, headers: corsHeaders });
+    }
+
+    const folder = safeFolder(groupId);
+    const ext = extFromName(file.name);
+    const key = `${folder}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+
+    await env.MEDIA_BUCKET.put(key, await file.arrayBuffer(), {
+      httpMetadata: {
+        contentType: file.type || "application/octet-stream",
+      },
+    });
+
+    const base = env.PUBLIC_R2_URL.replace(/\/+$/, "");
+    const url = `${base}/${key}`;
+
+    return Response.json({ url, key }, { headers: corsHeaders });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Upload failed unexpectedly";
+    return new Response(message, { status: 500, headers: corsHeaders });
   }
-
-  const folder = safeFolder(groupId);
-  const ext = extFromName(file.name);
-  const key = `${folder}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-
-  await env.MEDIA_BUCKET.put(key, await file.arrayBuffer(), {
-    httpMetadata: {
-      contentType: file.type || "application/octet-stream",
-    },
-  });
-
-  const base = env.PUBLIC_R2_URL.replace(/\/+$/, "");
-  const url = `${base}/${key}`;
-
-  return Response.json({ url, key }, { headers: corsHeaders });
 };
 
 export const onRequestOptions: PagesFunction = async () =>
