@@ -675,7 +675,6 @@ export function GroupHome({
   const [chatPeerId, setChatPeerId] = useState<string | null>(null);
   const [chatMembers, setChatMembers] = useState<ChatUser[]>([]);
   const [chatOnlineIds, setChatOnlineIds] = useState<Set<string>>(new Set());
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [headerHidden, setHeaderHidden] = useState(false);
   const lastScrollYRef = useRef(0);
   const mediaTouchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -707,26 +706,6 @@ export function GroupHome({
       window.removeEventListener("keydown", handleKey);
     };
   }, [mediaMenuOpenId]);
-
-  useEffect(() => {
-    if (!profileMenuOpen) return;
-    const handleClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!target) return;
-      if (target.closest("[data-profile-menu]")) return;
-      if (target.closest("[data-profile-menu-button]")) return;
-      setProfileMenuOpen(false);
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setProfileMenuOpen(false);
-    };
-    window.addEventListener("click", handleClick);
-    window.addEventListener("keydown", handleKey);
-    return () => {
-      window.removeEventListener("click", handleClick);
-      window.removeEventListener("keydown", handleKey);
-    };
-  }, [profileMenuOpen]);
 
   useEffect(() => {
     if (!chatMenuOpen) return;
@@ -2008,47 +1987,19 @@ export function GroupHome({
                     </div>
                   )}
                 </div>
-                <div className="relative">
-                  <button
-                    type="button"
-                    data-profile-menu-button
-                    onClick={() => setProfileMenuOpen((v) => !v)}
-                    className="h-9 w-9 rounded-full border border-gray-200 bg-white flex items-center justify-center overflow-hidden"
-                    title="Profile menu"
-                    aria-label="Profile menu"
-                  >
-                    {me ? (
-                      <UserAvatar userId={me.userId} name={me.name} size={32} />
-                    ) : (
-                      <span className="text-sm">👤</span>
-                    )}
-                  </button>
-
-                  {profileMenuOpen && (
-                    <div
-                      data-profile-menu
-                      className="absolute right-0 mt-2 w-48 rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden z-50"
-                    >
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm font-semibold text-gray-900 hover:bg-gray-50"
-                        onClick={() => {
-                          setProfileMenuOpen(false);
-                          setDrawerOpen(true);
-                        }}
-                      >
-                        Open menu
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm font-semibold text-gray-600 hover:bg-gray-50"
-                        onClick={() => setProfileMenuOpen(false)}
-                      >
-                        Close
-                      </button>
-                    </div>
+                <button
+                  type="button"
+                  onClick={() => setDrawerOpen(true)}
+                  className="h-9 w-9 rounded-full border border-gray-200 bg-white flex items-center justify-center overflow-hidden"
+                  title="Open menu"
+                  aria-label="Open menu"
+                >
+                  {me ? (
+                    <UserAvatar userId={me.userId} name={me.name} size={32} />
+                  ) : (
+                    <span className="text-sm">👤</span>
                   )}
-                </div>
+                </button>
               </div>
             </div>
 

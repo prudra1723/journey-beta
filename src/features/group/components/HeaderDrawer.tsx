@@ -365,6 +365,15 @@ export function HeaderDrawer({
                   {title}
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-9 w-9 rounded-2xl border border-gray-200 bg-white text-lg font-extrabold hover:bg-gray-50 flex items-center justify-center"
+                aria-label="Close menu"
+                title="Close"
+              >
+                ×
+              </button>
             </div>
 
             {/* Tabs */}
