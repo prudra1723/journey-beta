@@ -372,7 +372,7 @@ export async function createGroup(
  * - uses security definer RPC to insert membership safely
  * - returns group info when join succeeds
  */
-export async function joinGroup(code: string, userId: string) {
+export async function joinGroup(code: string, userId: string, name: string) {
   const client = assertSupabase();
   const invite = code.trim();
   if (!invite) throw new Error("Invite code required");
@@ -380,6 +380,7 @@ export async function joinGroup(code: string, userId: string) {
 
   const { data, error } = await client.rpc("join_group_by_code", {
     p_code: invite,
+    p_name: name,
   });
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : data;

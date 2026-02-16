@@ -112,7 +112,7 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
         );
       } else {
         group = await withTimeout(
-          joinGroup(inviteCode.trim(), authUserId),
+          joinGroup(inviteCode.trim(), authUserId, trimmedName),
           "Join group",
         );
       }

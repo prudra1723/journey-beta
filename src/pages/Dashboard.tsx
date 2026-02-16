@@ -199,7 +199,11 @@ export function Dashboard({ onLogout, onOpenGroup }: DashboardProps) {
 
     setJoinError(null);
     try {
-      const g = await joinGroupApi(joinCode.trim(), sessionUserId);
+      const g = await joinGroupApi(
+        joinCode.trim(),
+        sessionUserId,
+        (profileName || sessionName || session.name).trim(),
+      );
       if (!g) {
         setJoinError("Invalid invite code.");
         return;
