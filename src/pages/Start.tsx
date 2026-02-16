@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
-import { ensureProfile, signInAnonymously } from "../lib/auth";
+import { ensureProfile, getAuthSession, signInAnonymously } from "../lib/auth";
 import { setSessionFromProfile } from "../lib/session";
 import { createGroup, getGroupByCode, joinGroup } from "../lib/appDb";
 
@@ -87,10 +87,18 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
         );
       }
 
-      // ✅ Create anonymous session for create/join-new
-      setStep("auth:signInAnonymously");
-      const auth = await withTimeout(signInAnonymously(), "Guest login");
-      const authUserId = auth?.user?.id ?? auth?.session?.user?.id ?? null;
+      // ✅ Reuse existing session if present; only create a new anon session if needed
+      setStep("auth:checkSession");
+      const sessionRes = await withTimeout(getAuthSession(), "Session check");
+      const existingUserId =
+        sessionRes?.data?.session?.user?.id ?? sessionRes?.data?.user?.id ?? null;
+
+      let authUserId = existingUserId;
+      if (!authUserId) {
+        setStep("auth:signInAnonymously");
+        const auth = await withTimeout(signInAnonymously(), "Guest login");
+        authUserId = auth?.user?.id ?? auth?.session?.user?.id ?? null;
+      }
       if (!authUserId) throw new Error("Anonymous login failed");
 
       // ✅ Ensure profile (should be UPSERT in auth.ts)

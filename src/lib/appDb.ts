@@ -220,15 +220,19 @@ export async function addGroupMember(
     const rows = (memberRows ?? []) as Array<{ user_id: string }>;
     const nameMap = await mapNamesByIds(rows.map((r) => r.user_id));
     const newKey = normalizeName(newName);
-    const conflict = rows.some((r) => {
-      if (r.user_id === uid) return false;
-      const existingName = nameMap.get(r.user_id) ?? "";
-      return normalizeName(existingName) === newKey;
-    });
-    if (conflict) {
-      throw new Error(
-        "That name is already used in this group. Please choose another name.",
-      );
+    const conflictUserId =
+      rows.find((r) => {
+        if (r.user_id === uid) return false;
+        const existingName = nameMap.get(r.user_id) ?? "";
+        return normalizeName(existingName) === newKey;
+      })?.user_id ?? null;
+    if (conflictUserId) {
+      const { error: removeErr } = await client
+        .from("group_members")
+        .delete()
+        .eq("group_id", groupId)
+        .eq("user_id", conflictUserId);
+      if (removeErr) throw removeErr;
     }
   }
 
