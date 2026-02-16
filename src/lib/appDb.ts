@@ -369,42 +369,22 @@ export async function createGroup(
 
 /**
  * ✅ UPDATED: joinGroup
- * - no RPC needed
- * - finds group by groups.code
- * - upserts group_members (no duplicates)
+ * - uses security definer RPC to insert membership safely
+ * - returns group info when join succeeds
  */
 export async function joinGroup(code: string, userId: string) {
   const client = assertSupabase();
   const invite = code.trim();
   if (!invite) throw new Error("Invite code required");
+  void userId;
 
-  const { data: group, error: groupErr } = await client
-    .from("groups")
-    .select("id,name,code,created_at,permissions")
-    .eq("code", invite) // ✅ your column
-    .maybeSingle();
-
-  if (groupErr) throw groupErr;
-  if (!group) return null;
-
-  const { data: existingMember, error: findMemberErr } = await client
-    .from("group_members")
-    .select("id")
-    .eq("group_id", (group as any).id)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (findMemberErr) throw findMemberErr;
-
-  if (!existingMember) {
-    const { error: memberErr } = await client.from("group_members").insert({
-      group_id: (group as any).id,
-      user_id: userId,
-      role: "member",
-    });
-    if (memberErr) throw memberErr;
-  }
-
-  return mapGroup(group as GroupRow);
+  const { data, error } = await client.rpc("join_group_by_code", {
+    p_code: invite,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return mapGroup(row as GroupRow);
 }
 
 export async function updateGroupMeta(
