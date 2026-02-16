@@ -60,6 +60,14 @@ import { readGroupHeaderImage } from "../lib/groupHeaderImage";
 
 type TabKey = "timeline" | "plan" | "media" | "orders" | "marketplace";
 
+type NotificationItem = {
+  id: string;
+  text: string;
+  createdAt: number;
+  createdBy: { userId: string; name: string };
+  groupId?: string;
+};
+
 const ABOUT_OPTIONS = [
   { value: "", label: "Select type" },
   { value: "travel", label: "Travel" },
@@ -395,6 +403,13 @@ export function GroupHome({
     }
   });
 
+  const [notifCount, setNotifCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifItems, setNotifItems] = useState<NotificationItem[]>([]);
+  const notifMenuRef = useRef<HTMLDivElement | null>(null);
+  const notifLatestRef = useRef(0);
+  const notifSeenRef = useRef(0);
+
   function setTabAndScroll(next: TabKey) {
     setTab(next);
     if (typeof window !== "undefined") {
@@ -660,9 +675,6 @@ export function GroupHome({
   const [chatPeerId, setChatPeerId] = useState<string | null>(null);
   const [chatMembers, setChatMembers] = useState<ChatUser[]>([]);
   const [chatOnlineIds, setChatOnlineIds] = useState<Set<string>>(new Set());
-  const [notifCount, setNotifCount] = useState(0);
-  const notifLatestRef = useRef(0);
-  const notifSeenRef = useRef(0);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [headerHidden, setHeaderHidden] = useState(false);
   const lastScrollYRef = useRef(0);
@@ -737,6 +749,26 @@ export function GroupHome({
   }, [chatMenuOpen]);
 
   useEffect(() => {
+    if (!notifOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest("[data-notif-menu]")) return;
+      if (target.closest("[data-notif-button]")) return;
+      setNotifOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNotifOpen(false);
+    };
+    window.addEventListener("click", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [notifOpen]);
+
+  useEffect(() => {
     if (!chatMenuOpen || !groupId) return;
     let active = true;
     const loadMembers = async () => {
@@ -784,6 +816,19 @@ export function GroupHome({
             p.createdAt > seen && p.createdBy?.userId !== session.userId,
         ).length;
         setNotifCount(count);
+        const history = posts
+          .filter((p) => p.createdBy?.userId !== session.userId)
+          .slice(0, 20)
+          .map((p) => ({
+            id: p.id,
+            text:
+              p.text?.trim() ||
+              (p.imageDataUrl ? "Shared a photo/video" : "New post"),
+            createdAt: p.createdAt,
+            createdBy: p.createdBy,
+            groupId: p.groupId,
+          }));
+        setNotifItems(history);
       } catch {
         if (!active) return;
         setNotifCount(0);
@@ -1880,31 +1925,89 @@ export function GroupHome({
                     </div>
                   )}
                 </div>
-                <button
-                  type="button"
-                  className="relative h-9 w-9 rounded-2xl border border-gray-200 bg-white text-lg hover:bg-gray-50"
-                  title="Notifications"
-                  aria-label="Notifications"
-                  onClick={() => {
-                    if (session?.userId && typeof window !== "undefined") {
-                      const seenKey = `journey_beta_notifications_seen:${session.userId}`;
-                      const latest = notifLatestRef.current;
-                      if (latest > 0) {
-                        localStorage.setItem(seenKey, String(latest));
-                        notifSeenRef.current = latest;
-                      }
-                      setNotifCount(0);
-                    }
-                    setTabAndScroll("timeline");
-                  }}
-                >
-                  🔔
-                  {notifCount > 0 && (
-                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                      {notifCount > 99 ? "99+" : notifCount}
-                    </span>
+                <div className="relative">
+                  <button
+                    type="button"
+                    data-notif-button
+                    className="relative h-9 w-9 rounded-2xl border border-gray-200 bg-white text-lg hover:bg-gray-50"
+                    title="Notifications"
+                    aria-label="Notifications"
+                    onClick={() => {
+                      setNotifOpen((v) => {
+                        const next = !v;
+                        if (next && session?.userId && typeof window !== "undefined") {
+                          const seenKey = `journey_beta_notifications_seen:${session.userId}`;
+                          const latest = notifLatestRef.current;
+                          if (latest > 0) {
+                            localStorage.setItem(seenKey, String(latest));
+                            notifSeenRef.current = latest;
+                          }
+                          setNotifCount(0);
+                        }
+                        return next;
+                      });
+                    }}
+                  >
+                    🔔
+                    {notifCount > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        {notifCount > 99 ? "99+" : notifCount}
+                      </span>
+                    )}
+                  </button>
+
+                  {notifOpen && (
+                    <div
+                      ref={notifMenuRef}
+                      data-notif-menu
+                      className="absolute right-0 mt-2 w-80 max-w-[90vw] rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden z-50"
+                    >
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+                        <div className="text-sm font-extrabold text-gray-900">
+                          Notifications
+                        </div>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-blue-700 hover:underline"
+                          onClick={() => {
+                            setNotifOpen(false);
+                            setTabAndScroll("timeline");
+                          }}
+                        >
+                          View timeline
+                        </button>
+                      </div>
+                      <div className="max-h-80 overflow-y-auto">
+                        {notifItems.length === 0 && (
+                          <div className="px-3 py-4 text-sm text-gray-500">
+                            No notifications yet.
+                          </div>
+                        )}
+                        {notifItems.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="w-full text-left px-3 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                            onClick={() => {
+                              setNotifOpen(false);
+                              setTabAndScroll("timeline");
+                            }}
+                          >
+                            <div className="text-sm font-semibold text-gray-900">
+                              {item.createdBy?.name ?? "Someone"}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {new Date(item.createdAt).toLocaleString()}
+                            </div>
+                            <div className="mt-1 text-sm text-gray-700 line-clamp-2">
+                              {item.text}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
-                </button>
+                </div>
                 <div className="relative">
                   <button
                     type="button"
