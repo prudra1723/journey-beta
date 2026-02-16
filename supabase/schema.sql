@@ -4,6 +4,7 @@ create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name_key text unique,
   display_name text,
+  email text,
   avatar_url text,
   cover_url text,
   bio text,
@@ -11,6 +12,9 @@ create table if not exists profiles (
   last_seen_at timestamptz,
   created_at timestamptz default now()
 );
+
+alter table profiles
+  add column if not exists email text;
 
 create table if not exists groups (
   id uuid primary key default gen_random_uuid(),

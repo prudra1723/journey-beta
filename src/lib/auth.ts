@@ -15,8 +15,13 @@ export async function signOut() {
   if (error) throw error;
 }
 
-export async function ensureProfile(userId: string, displayName?: string) {
+export async function ensureProfile(
+  userId: string,
+  displayName?: string,
+  email?: string,
+) {
   const name = displayName?.trim() || "User";
+  const emailValue = email?.trim();
 
   const { data: existing, error: findErr } = await supabase
     .from("profiles")
@@ -26,27 +31,42 @@ export async function ensureProfile(userId: string, displayName?: string) {
   if (findErr) throw findErr;
 
   if (existing) {
+    const updatePayload: {
+      display_name: string;
+      name_key: string;
+      email?: string | null;
+    } = {
+      display_name: name,
+      name_key: normalizeName(name),
+    };
+    if (emailValue) updatePayload.email = emailValue;
+
     const { data: updated, error: updateErr } = await supabase
       .from("profiles")
-      .update({
-        display_name: name,
-        name_key: normalizeName(name),
-      })
+      .update(updatePayload)
       .eq("id", userId)
-      .select("id,display_name")
+      .select("id,display_name,email")
       .single();
     if (updateErr) throw updateErr;
     return updated;
   }
 
+  const insertPayload: {
+    id: string;
+    display_name: string;
+    name_key: string;
+    email?: string | null;
+  } = {
+    id: userId,
+    display_name: name,
+    name_key: normalizeName(name),
+  };
+  if (emailValue) insertPayload.email = emailValue;
+
   const { data: created, error: insertErr } = await supabase
     .from("profiles")
-    .insert({
-      id: userId,
-      display_name: name,
-      name_key: normalizeName(name),
-    })
-    .select("id,display_name")
+    .insert(insertPayload)
+    .select("id,display_name,email")
     .single();
 
   if (insertErr) throw insertErr;
