@@ -2019,7 +2019,7 @@ export function GroupHome({
       />
 
       <div className="journey-content">
-        <main className="mx-auto w-[95%] max-w-6xl py-5 space-y-5">
+        <main className="mx-auto w-[95%] max-w-6xl pt-5 pb-24 sm:pb-5 space-y-5">
         <div className={tab === "timeline" ? "-mt-3 sm:-mt-4" : "hidden"}>
           <TimelineTab
             groupId={groupId}
