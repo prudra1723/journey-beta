@@ -242,23 +242,15 @@ export default function ChatWidget({
     playSendSound();
   }
 
+  useEffect(() => {
+    if (toast) {
+      clearIncoming();
+      setToast(null);
+    }
+  }, [toast, clearIncoming, setToast]);
+
   return (
     <>
-      {toast && (
-        <ChatToast
-          text={toast}
-          isMobile={isMobile}
-          onOpen={() => {
-            clearIncoming();
-            setToast(null);
-            setOpen(true);
-          }}
-          onClose={() => {
-            clearIncoming();
-            setToast(null);
-          }}
-        />
-      )}
 
       {showFab && (
         <ChatFab
