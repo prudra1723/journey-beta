@@ -527,13 +527,14 @@ export function GroupHome({
 
   useEffect(() => {
     if (!orderLoaded || !me) return;
+    const created = orderCreated || orderItems.length > 0;
     const payload = JSON.stringify({
-      created: orderCreated,
+      created,
       items: orderItems,
     });
     if (payload === orderSyncRef.current) return;
     const timer = window.setTimeout(() => {
-      saveOrderList(groupId, orderItems, orderCreated, me.userId)
+      saveOrderList(groupId, orderItems, created, me.userId)
         .then(() => {
           orderSyncRef.current = payload;
         })
@@ -2992,14 +2993,14 @@ export function GroupHome({
 
         <div className={tab === "orders" ? "" : "hidden"}>
           <Card>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="text-lg font-extrabold text-gray-900 tracking-tight">
-                  Order list
-                </div>
-                <p className="mt-1 text-gray-600">
-                  Build a checklist for food, supplies, or tasks.
-                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-lg font-extrabold text-gray-900 tracking-tight">
+                      Order list
+                    </div>
+                    <p className="mt-1 text-gray-600">
+                      Build a checklist for food, supplies, or tasks.
+                    </p>
                 {orderError && (
                   <div className="mt-2 text-xs font-semibold text-red-600">
                     {orderError}
@@ -3011,14 +3012,6 @@ export function GroupHome({
                   </div>
                 )}
               </div>
-              <Button
-                variant="primary"
-                disabled={orderItems.length === 0}
-                onClick={() => setOrderCreated(true)}
-                className="w-full sm:w-auto"
-              >
-                Create order list
-              </Button>
             </div>
 
             <div className="mt-4 flex flex-col sm:flex-row gap-2">
@@ -3040,7 +3033,7 @@ export function GroupHome({
                     },
                   ]);
                   setOrderDraft("");
-                  setOrderCreated(false);
+                  setOrderCreated(true);
                 }}
                 placeholder="Add an item (e.g., snacks, water, tickets)"
                 className="flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
@@ -3061,7 +3054,7 @@ export function GroupHome({
                     },
                   ]);
                   setOrderDraft("");
-                  setOrderCreated(false);
+                  setOrderCreated(true);
                 }}
                 className="w-full sm:w-auto"
               >
@@ -3121,11 +3114,6 @@ export function GroupHome({
               ))}
             </div>
 
-            {orderCreated && (
-              <div className="mt-3 text-xs font-semibold text-green-700">
-                Order list created. You can keep editing anytime.
-              </div>
-            )}
           </Card>
         </div>
 
