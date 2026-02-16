@@ -10,7 +10,6 @@ import {
   updateTimelinePost,
   deletePost as deletePostApi,
   getTimeline,
-  readTimelineImages,
   readTimelineImagesForPosts,
   saveTimelineImages,
   toggleLike as toggleLikeApi,
@@ -554,12 +553,16 @@ export default function TimelineTab({
         limit: publicFeed ? 60 : 40,
       })) as unknown as DbTimelinePost[];
       const postIds = list.map((p) => p.id);
-      const images = publicFeed
-        ? await readTimelineImagesForPosts(postIds)
-        : await readTimelineImages(groupId);
       setPosts(list);
-      setRemoteImages(images);
       setExtra(loadExtra());
+      // Load images in a second step to make the timeline appear faster.
+      readTimelineImagesForPosts(postIds)
+        .then((images) => {
+          setRemoteImages(images);
+        })
+        .catch(() => {
+          // keep existing images if fetch fails
+        });
     } catch (err) {
       const msg =
         (err as { message?: string })?.message ??
