@@ -77,6 +77,19 @@ export function DinnerMenuBox({
     return map;
   }, [state.votesByUser]);
 
+  const votingClosed = !!state.closesAt && now > state.closesAt;
+
+  const winner = useMemo(() => {
+    if (!votingClosed) return null;
+    const entries = Object.entries(counts);
+    if (entries.length === 0) return { items: [], count: 0 };
+    const max = Math.max(...entries.map(([, c]) => c));
+    if (!Number.isFinite(max) || max <= 0) return { items: [], count: 0 };
+    const winningIds = entries.filter(([, c]) => c === max).map(([id]) => id);
+    const items = state.items.filter((it) => winningIds.includes(it.id));
+    return { items, count: max };
+  }, [counts, state.items, votingClosed]);
+
   // If not relevant, don’t show (but still works if you want always-on)
   if (!show && !titleHint?.toLowerCase().includes("dinner")) return null;
   if (hidden) return null;
@@ -100,16 +113,49 @@ export function DinnerMenuBox({
         {votingStatus ? votingStatus : "Custom menu + voting"}
       </div>
 
+      {votingClosed && (
+        <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+          <div className="font-extrabold text-emerald-900">
+            {winner && winner.items.length > 0
+              ? "Winner"
+              : "No winner yet"}
+          </div>
+          <div className="text-emerald-900">
+            {winner && winner.items.length > 0 ? (
+              <>
+                {winner.items.map((it) => it.text).join(", ")}
+                <span className="ml-2 text-xs font-semibold text-emerald-700">
+                  {winner.count} vote{winner.count === 1 ? "" : "s"}
+                  {winner.items.length > 1 ? " (tie)" : ""}
+                </span>
+              </>
+            ) : (
+              <span className="text-emerald-700 text-xs">
+                Voting closed with no votes.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* vote list */}
       <div className="mt-3 space-y-2">
         {state.items.map((it) => {
           const c = counts[it.id] ?? 0;
           const chosen = myVote === it.id;
-
-          const votingClosed = !!state.closesAt && now > state.closesAt;
+          const isWinner =
+            votingClosed &&
+            winner?.items.some((w) => w.id === it.id) &&
+            (winner?.count ?? 0) > 0;
 
           return (
-            <div key={it.id} className="flex gap-2 items-stretch">
+            <div
+              key={it.id}
+              className={[
+                "flex gap-2 items-stretch",
+                isWinner ? "ring-2 ring-emerald-200 rounded-2xl" : "",
+              ].join(" ")}
+            >
               <button
                 type="button"
                 disabled={!me || !!votingClosed}
@@ -119,6 +165,7 @@ export function DinnerMenuBox({
                     ? "bg-blue-600 border-blue-600 text-white"
                     : "bg-white border-gray-200 text-gray-900 hover:bg-gray-50",
                   !me || votingClosed ? "opacity-70 cursor-not-allowed" : "",
+                  isWinner ? "border-emerald-300 bg-emerald-50" : "",
                 ].join(" ")}
                 onClick={() => {
                   if (!me) return;
@@ -143,6 +190,11 @@ export function DinnerMenuBox({
                   >
                     {c}
                   </span>
+                  {isWinner && (
+                    <span className="ml-2 text-[10px] font-extrabold text-emerald-700">
+                      WINNER
+                    </span>
+                  )}
                 </div>
               </button>
 
