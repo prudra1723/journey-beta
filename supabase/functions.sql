@@ -14,6 +14,7 @@ declare
   g record;
   norm_name text;
   existing_user uuid;
+  new_name text;
 begin
   select * into g
   from groups gr
@@ -33,9 +34,12 @@ begin
     limit 1;
 
     if existing_user is not null and existing_user <> auth.uid() then
-      -- replace membership to keep names unique per group
-      delete from group_members
-      where group_id = g.id and user_id = existing_user;
+      -- keep old member, but rename to avoid duplicate display names
+      new_name := trim(p_name) || ' (old ' || right(existing_user::text, 4) || ')';
+      update profiles
+      set display_name = new_name,
+          name_key = lower(trim(regexp_replace(new_name, '\s+', ' ', 'g')))
+      where id = existing_user;
     end if;
   end if;
 
