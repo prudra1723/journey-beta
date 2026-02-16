@@ -1092,7 +1092,7 @@ export default function TimelineTab({
                     </div>
                   </div>
 
-                {p.createdBy.userId === me.userId && (
+                {session && (
                   <div className="relative self-end sm:self-auto">
                     {editingId === p.id ? (
                       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -1131,25 +1131,46 @@ export default function TimelineTab({
                         {openMenuPostId === p.id && (
                           <div
                             data-post-menu
-                            className="absolute right-0 mt-2 w-36 rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden z-10"
+                            className="absolute right-0 mt-2 w-44 rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden z-10"
                           >
                             <button
                               type="button"
-                              className="w-full px-3 py-2 text-left text-sm font-semibold text-gray-900 hover:bg-gray-50"
-                              onClick={() => startEdit(p)}
+                              disabled={p.createdBy.userId !== me.userId}
+                              className={[
+                                "w-full px-3 py-2 text-left text-sm font-semibold",
+                                p.createdBy.userId === me.userId
+                                  ? "text-gray-900 hover:bg-gray-50"
+                                  : "text-gray-400 cursor-not-allowed",
+                              ].join(" ")}
+                              onClick={() => {
+                                if (p.createdBy.userId !== me.userId) return;
+                                startEdit(p);
+                              }}
                             >
                               Edit
                             </button>
                             <button
                               type="button"
-                              className="w-full px-3 py-2 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
+                              disabled={p.createdBy.userId !== me.userId}
+                              className={[
+                                "w-full px-3 py-2 text-left text-sm font-semibold",
+                                p.createdBy.userId === me.userId
+                                  ? "text-red-600 hover:bg-red-50"
+                                  : "text-gray-400 cursor-not-allowed",
+                              ].join(" ")}
                               onClick={() => {
+                                if (p.createdBy.userId !== me.userId) return;
                                 setOpenMenuPostId(null);
                                 deletePost(p);
                               }}
                             >
                               Delete
                             </button>
+                            {p.createdBy.userId !== me.userId && (
+                              <div className="px-3 py-2 text-xs text-gray-500 border-t border-gray-100">
+                                Only the author can edit or delete.
+                              </div>
+                            )}
                           </div>
                         )}
                       </>
