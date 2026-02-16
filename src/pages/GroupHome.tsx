@@ -559,7 +559,7 @@ export function GroupHome({
             "Could not save order list.";
           setOrderError(msg);
         });
-    }, 500);
+    }, 150);
     return () => window.clearTimeout(timer);
   }, [orderLoaded, orderItems, orderCreated, groupId, me]);
 
