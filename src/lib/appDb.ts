@@ -387,37 +387,6 @@ export async function joinGroup(code: string, userId: string) {
   if (groupErr) throw groupErr;
   if (!group) return null;
 
-  const { data: meProfile, error: meErr } = await client
-    .from("profiles")
-    .select("display_name")
-    .eq("id", userId)
-    .maybeSingle();
-  if (meErr) throw meErr;
-  const myName = (meProfile as { display_name?: string | null } | null)
-    ?.display_name?.trim();
-
-  if (myName) {
-    const { data: memberRows, error: membersErr } = await client
-      .from("group_members")
-      .select("user_id")
-      .eq("group_id", (group as any).id);
-    if (membersErr) throw membersErr;
-
-    const rows = (memberRows ?? []) as Array<{ user_id: string }>;
-    const nameMap = await mapNamesByIds(rows.map((r) => r.user_id));
-    const myKey = normalizeName(myName);
-    const conflict = rows.some((r) => {
-      if (r.user_id === userId) return false;
-      const existingName = nameMap.get(r.user_id) ?? "";
-      return normalizeName(existingName) === myKey;
-    });
-    if (conflict) {
-      throw new Error(
-        "That name is already used in this group. Please change your name.",
-      );
-    }
-  }
-
   const { data: existingMember, error: findMemberErr } = await client
     .from("group_members")
     .select("id")

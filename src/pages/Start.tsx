@@ -4,12 +4,7 @@ import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { ensureProfile, signInAnonymously } from "../lib/auth";
 import { setSessionFromProfile } from "../lib/session";
-import {
-  createGroup,
-  findMemberByName,
-  getGroupByCode,
-  joinGroup,
-} from "../lib/appDb";
+import { createGroup, getGroupByCode, joinGroup } from "../lib/appDb";
 
 export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
   const rawAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as
@@ -77,7 +72,7 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
 
       let existingGroup: { id: string } | null = null;
 
-      // ✅ If joining, first try to "login" by name+code
+      // ✅ If joining, validate invite code first
       if (mode === "join") {
         setStep("group:lookup");
         existingGroup = await withTimeout(
@@ -87,21 +82,9 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
         if (!existingGroup) {
           throw new Error("Invalid invite code.");
         }
-
-        const existingMember = await withTimeout(
-          findMemberByName(existingGroup.id, trimmedName),
-          "Find member",
+        setNameHint(
+          "Joining creates a new device session (names can be reused).",
         );
-
-        if (existingMember) {
-          setNameHint(null);
-          setSessionFromProfile(existingMember.userId, existingMember.name);
-          setStep("done");
-          onDone(existingGroup.id);
-          return;
-        }
-
-        setNameHint("Name not found. A new profile will be created.");
       }
 
       // ✅ Create anonymous session for create/join-new
