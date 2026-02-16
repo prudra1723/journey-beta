@@ -13,7 +13,10 @@ as $$
 declare
   g record;
 begin
-  select * into g from groups where upper(code) = upper(p_code) limit 1;
+  select * into g
+  from groups gr
+  where upper(gr.code) = upper(p_code)
+  limit 1;
   if g is null then
     return;
   end if;
