@@ -25,7 +25,9 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
   const [mode, setMode] = useState<"create" | "join">(
     initialCode ? "join" : "create",
   );
+  const [stage, setStage] = useState<"identity" | "group">("identity");
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [groupName, setGroupName] = useState("");
   const [inviteCode, setInviteCode] = useState(initialCode);
 
@@ -38,8 +40,14 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
   const [cookiesAck, setCookiesAck] = useState(false);
 
   const nameKey = useMemo(() => name.trim().toLowerCase(), [name]);
+  const emailKey = useMemo(() => email.trim().toLowerCase(), [email]);
+  const emailValid = useMemo(
+    () => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailKey),
+    [emailKey],
+  );
 
-  const canContinue =
+  const canContinueIdentity = !keyIssue && name.trim().length >= 2 && emailValid;
+  const canContinueGroup =
     !keyIssue &&
     name.trim().length >= 2 &&
     (mode === "create"
@@ -56,8 +64,14 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
     return Promise.race([p, timeout]);
   };
 
-  async function handleContinue() {
-    if (!canContinue || busy) return;
+  function handleIdentityContinue() {
+    if (!canContinueIdentity || busy) return;
+    setError(null);
+    setStage("group");
+  }
+
+  async function handleGroupContinue() {
+    if (!canContinueGroup || busy) return;
 
     try {
       if (keyIssue) {
@@ -103,7 +117,7 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
       // ✅ Ensure profile (should be UPSERT in auth.ts)
       setStep("profile:ensure");
       const profile = await withTimeout(
-        ensureProfile(authUserId, trimmedName),
+        ensureProfile(authUserId, trimmedName, email.trim()),
         "Profile setup",
       );
 
@@ -153,177 +167,257 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
       <main className="mx-auto flex min-h-[calc(100vh-90px)] w-[95%] max-w-5xl items-center justify-center py-6">
         <div className="w-full max-w-xl">
           <Card className="p-6">
-            <div className="text-3xl font-extrabold text-gray-900">
-              {mode === "create" ? "Create a group" : "Join a group"}
-            </div>
-            <p className="mt-2 text-gray-600">
-              {mode === "create"
-                ? "Start a new group and share the code."
-                : "Enter the invite code to join instantly."}
-            </p>
-
-            <div className="mt-6">
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMode("create")}
-                  className={[
-                    "px-4 py-2 rounded-full border text-sm font-semibold",
-                    mode === "create"
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "bg-white border-gray-200 text-gray-700",
-                  ].join(" ")}
-                >
-                  Create
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("join")}
-                  className={[
-                    "px-4 py-2 rounded-full border text-sm font-semibold",
-                    mode === "join"
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "bg-white border-gray-200 text-gray-700",
-                  ].join(" ")}
-                >
-                  Join
-                </button>
-              </div>
-
-              <div className="mt-2">
-                <label className="text-sm font-semibold text-gray-900">
-                  Your name
-                </label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Rudra Pandey"
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                />
-                <div className="mt-2 text-xs text-gray-500">
-                  User ID: <span className="font-mono">{nameKey || "-"}</span>
+            {stage === "identity" ? (
+              <>
+                <div className="text-3xl font-extrabold text-gray-900">
+                  Welcome
                 </div>
-              </div>
+                <p className="mt-2 text-gray-600">
+                  Enter your name and email to continue.
+                </p>
 
-              {mode === "create" && (
-                <div className="mt-4">
-                  <label className="text-sm font-semibold text-gray-900">
-                    Group name
-                  </label>
-                  <input
-                    value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
-                    placeholder="Birthday Trip"
-                    className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                  />
-                  <div className="mt-2 text-xs text-gray-500">
-                    We’ll generate a shareable code after you create.
+                <div className="mt-6 space-y-4">
+                  <div>
+                    <label className="text-sm font-semibold text-gray-900">
+                      Your name
+                    </label>
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g., Rudra Pandey"
+                      className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                    />
+                    <div className="mt-2 text-xs text-gray-500">
+                      User ID:{" "}
+                      <span className="font-mono">{nameKey || "-"}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-gray-900">
+                      Email address
+                    </label>
+                    <input
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      type="email"
+                      className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                    />
+                    {!emailValid && email.length > 0 && (
+                      <div className="mt-2 text-xs text-red-600">
+                        Enter a valid email address.
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
 
-              {mode === "join" && (
-                <div className="mt-4">
-                  <label className="text-sm font-semibold text-gray-900">
-                    Invite code
-                  </label>
-                  <input
-                    value={inviteCode}
-                    onChange={(e) => setInviteCode(e.target.value)}
-                    placeholder="e.g., TRIP-7F2A"
-                    className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-200"
-                  />
-                  {nameHint && (
-                    <div className="mt-2 text-xs text-gray-500">{nameHint}</div>
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <Button
+                    variant="primary"
+                    disabled={!canContinueIdentity || busy}
+                    onClick={handleIdentityContinue}
+                    className="w-full sm:w-auto"
+                  >
+                    Continue
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setName("");
+                      setEmail("");
+                    }}
+                    disabled={busy}
+                    className="w-full sm:w-auto"
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-3xl font-extrabold text-gray-900">
+                  {mode === "create" ? "Create a group" : "Join a group"}
+                </div>
+                <p className="mt-2 text-gray-600">
+                  {mode === "create"
+                    ? "Start a new group and share the code."
+                    : "Enter the invite code to join instantly."}
+                </p>
+
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                  <div className="text-sm font-semibold text-gray-700">
+                    Signed in as{" "}
+                    <span className="text-gray-900">{name.trim() || "-"}</span>
+                    <span className="text-gray-400"> • </span>
+                    <span className="text-gray-600">{emailKey || "-"}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setStage("identity")}
+                    className="px-3 py-1 text-xs"
+                  >
+                    Edit
+                  </Button>
+                </div>
+
+                <div className="mt-6">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMode("create")}
+                      className={[
+                        "px-4 py-2 rounded-full border text-sm font-semibold",
+                        mode === "create"
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white border-gray-200 text-gray-700",
+                      ].join(" ")}
+                    >
+                      Create
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode("join")}
+                      className={[
+                        "px-4 py-2 rounded-full border text-sm font-semibold",
+                        mode === "join"
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white border-gray-200 text-gray-700",
+                      ].join(" ")}
+                    >
+                      Join
+                    </button>
+                  </div>
+
+                  {mode === "create" && (
+                    <div className="mt-4">
+                      <label className="text-sm font-semibold text-gray-900">
+                        Group name
+                      </label>
+                      <input
+                        value={groupName}
+                        onChange={(e) => setGroupName(e.target.value)}
+                        placeholder="Birthday Trip"
+                        className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                      />
+                      <div className="mt-2 text-xs text-gray-500">
+                        We’ll generate a shareable code after you create.
+                      </div>
+                    </div>
+                  )}
+
+                  {mode === "join" && (
+                    <div className="mt-4">
+                      <label className="text-sm font-semibold text-gray-900">
+                        Invite code
+                      </label>
+                      <input
+                        value={inviteCode}
+                        onChange={(e) => setInviteCode(e.target.value)}
+                        placeholder="e.g., TRIP-7F2A"
+                        className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-200"
+                      />
+                      {nameHint && (
+                        <div className="mt-2 text-xs text-gray-500">
+                          {nameHint}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <Button
-                variant="primary"
-                disabled={!canContinue || busy}
-                onClick={handleContinue}
-                className="w-full sm:w-auto"
-              >
-                {busy ? "Working..." : "Continue"}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => setName("")}
-                disabled={busy}
-                className="w-full sm:w-auto"
-              >
-                Clear
-              </Button>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-3">
-              <div className="text-xs font-semibold text-gray-700">
-                Privacy, Terms & Cookies
-              </div>
-              <div className="mt-2 space-y-2 text-[11px] text-gray-600">
-                <p>
-                  This app is for testing and group member use only. You can
-                  create or join a group using an invite code.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  <Link
-                    to="/privacy"
-                    className="font-semibold text-blue-600 hover:underline"
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <Button
+                    variant="primary"
+                    disabled={!canContinueGroup || busy}
+                    onClick={handleGroupContinue}
+                    className="w-full sm:w-auto"
                   >
-                    Read Privacy Policy
-                  </Link>
-                  <Link
-                    to="/terms"
-                    className="font-semibold text-blue-600 hover:underline"
+                    {busy ? "Working..." : "Continue"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setStage("identity")}
+                    disabled={busy}
+                    className="w-full sm:w-auto"
                   >
-                    Read Terms
-                  </Link>
-                  <Link
-                    to="/cookies"
-                    className="font-semibold text-blue-600 hover:underline"
-                  >
-                    Cookies Policy
-                  </Link>
+                    Back
+                  </Button>
                 </div>
-              </div>
 
-              <div className="mt-3 space-y-2 text-xs font-semibold text-gray-700">
-                <label className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={privacyAck}
-                    onChange={(e) => setPrivacyAck(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>I understand the privacy policy.</span>
-                </label>
-                <label className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={termsAck}
-                    onChange={(e) => setTermsAck(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>I agree to the terms and conditions.</span>
-                </label>
-                <label className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={cookiesAck}
-                    onChange={(e) => setCookiesAck(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>I acknowledge cookies/local storage usage.</span>
-                </label>
-              </div>
-            </div>
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-3">
+                  <div className="text-xs font-semibold text-gray-700">
+                    Privacy, Terms & Cookies
+                  </div>
+                  <div className="mt-2 space-y-2 text-[11px] text-gray-600">
+                    <p>
+                      This app is for testing and group member use only. You can
+                      create or join a group using an invite code.
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <Link
+                        to="/privacy"
+                        className="font-semibold text-blue-600 hover:underline"
+                      >
+                        Read Privacy Policy
+                      </Link>
+                      <Link
+                        to="/terms"
+                        className="font-semibold text-blue-600 hover:underline"
+                      >
+                        Read Terms
+                      </Link>
+                      <Link
+                        to="/cookies"
+                        className="font-semibold text-blue-600 hover:underline"
+                      >
+                        Cookies Policy
+                      </Link>
+                    </div>
+                  </div>
 
-            {step && (
+                  <div className="mt-3 space-y-2 text-xs font-semibold text-gray-700">
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={privacyAck}
+                        onChange={(e) => setPrivacyAck(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>I understand the privacy policy.</span>
+                    </label>
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={termsAck}
+                        onChange={(e) => setTermsAck(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>I agree to the terms and conditions.</span>
+                    </label>
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={cookiesAck}
+                        onChange={(e) => setCookiesAck(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>I acknowledge cookies/local storage usage.</span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {step && stage === "group" && (
               <div className="mt-2 text-xs font-mono text-gray-500">
                 Step: {step}
+              </div>
+            )}
+
+            {keyIssue && (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                {keyIssue}
               </div>
             )}
 
