@@ -5,7 +5,6 @@ import type { ChatUser } from "../lib/chatDb";
 import { updateGroupName } from "../lib/appDb";
 
 import { ChatFab } from "../features/chat/components/ChatFab";
-import { ChatToast } from "../features/chat/components/ChatToast";
 import { useChatSync } from "../features/chat/hooks/useChatSync";
 import { UserAvatar } from "./UserAvatar";
 
@@ -56,7 +55,6 @@ export default function ChatWidget({
   const [nameError, setNameError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioReadyRef = useRef(false);
 
@@ -72,15 +70,6 @@ export default function ChatWidget({
     clearIncoming,
     sendMessage,
   } = useChatSync({ groupId, me, open, mode, peerId });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 640px)");
-    const update = () => setIsMobile(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
 
   const ensureAudio = async () => {
     if (audioReadyRef.current) {
