@@ -111,30 +111,10 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
           "Create group",
         );
       } else {
-        try {
-          group = await withTimeout(
-            joinGroup(inviteCode.trim(), authUserId),
-            "Join group",
-          );
-        } catch (err: any) {
-          const msg = err?.message ?? "";
-          if (
-            existingGroup &&
-            msg.toLowerCase().includes("already used")
-          ) {
-            const existingMember = await withTimeout(
-              findMemberByName(existingGroup.id, trimmedName),
-              "Find member",
-            );
-            if (existingMember) {
-              setSessionFromProfile(existingMember.userId, existingMember.name);
-              setStep("done");
-              onDone(existingGroup.id);
-              return;
-            }
-          }
-          throw err;
-        }
+        group = await withTimeout(
+          joinGroup(inviteCode.trim(), authUserId),
+          "Join group",
+        );
       }
 
       if (!group?.id) {
