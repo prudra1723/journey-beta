@@ -739,7 +739,6 @@ export default function TimelineTab({
   async function deletePost(post: DbTimelinePost) {
     if (!canInteractWithPost(post.groupId)) return;
     if (!session) return;
-    if (post.createdBy.userId !== me.userId) return;
 
     const ok = confirm("Delete this post? This cannot be undone.");
     if (!ok) return;
@@ -1153,15 +1152,11 @@ export default function TimelineTab({
                           >
                             <button
                               type="button"
-                              disabled={p.createdBy.userId !== me.userId}
                               className={[
                                 "w-full px-3 py-2 text-left text-sm font-semibold",
-                                p.createdBy.userId === me.userId
-                                  ? "text-gray-900 hover:bg-gray-50"
-                                  : "text-gray-400 cursor-not-allowed",
+                                "text-gray-900 hover:bg-gray-50",
                               ].join(" ")}
                               onClick={() => {
-                                if (p.createdBy.userId !== me.userId) return;
                                 startEdit(p);
                               }}
                             >
@@ -1169,26 +1164,17 @@ export default function TimelineTab({
                             </button>
                             <button
                               type="button"
-                              disabled={p.createdBy.userId !== me.userId}
                               className={[
                                 "w-full px-3 py-2 text-left text-sm font-semibold",
-                                p.createdBy.userId === me.userId
-                                  ? "text-red-600 hover:bg-red-50"
-                                  : "text-gray-400 cursor-not-allowed",
+                                "text-red-600 hover:bg-red-50",
                               ].join(" ")}
                               onClick={() => {
-                                if (p.createdBy.userId !== me.userId) return;
                                 setOpenMenuPostId(null);
                                 deletePost(p);
                               }}
                             >
                               Delete
                             </button>
-                            {p.createdBy.userId !== me.userId && (
-                              <div className="px-3 py-2 text-xs text-gray-500 border-t border-gray-100">
-                                Only the author can edit or delete.
-                              </div>
-                            )}
                           </div>
                         )}
                       </>

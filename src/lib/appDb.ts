@@ -935,6 +935,7 @@ export async function updateTimelinePost(
   patch: { text?: string; imageDataUrl?: string | null },
 ) {
   const client = assertSupabase();
+  void userId;
   const { error } = await client
     .from("timeline_posts")
     .update({
@@ -942,7 +943,7 @@ export async function updateTimelinePost(
       image_url: patch.imageDataUrl ?? null,
     })
     .eq("id", postId)
-    .eq("created_by", userId);
+    .limit(1);
   if (error) throw error;
 }
 
@@ -987,12 +988,32 @@ export async function addComment(
 
 export async function deletePost(postId: string, userId: string) {
   const client = assertSupabase();
+  const { data: deleter, error: deleterErr } = await client
+    .from("profiles")
+    .select("display_name")
+    .eq("id", userId)
+    .maybeSingle();
+  if (deleterErr) throw deleterErr;
+
+  const name = (deleter as { display_name?: string | null } | null)
+    ?.display_name?.trim();
+  const label = name ? `Post deleted by ${name}` : "Post deleted";
+
   const { error } = await client
     .from("timeline_posts")
-    .delete()
+    .update({
+      text: label,
+      image_url: null,
+    })
     .eq("id", postId)
-    .eq("created_by", userId);
+    .limit(1);
   if (error) throw error;
+
+  const { error: imageErr } = await client
+    .from("timeline_images")
+    .delete()
+    .eq("post_id", postId);
+  if (imageErr) throw imageErr;
 }
 
 export async function readMedia(groupId: string) {
