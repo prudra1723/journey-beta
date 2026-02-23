@@ -12,8 +12,13 @@ export async function signUpWithEmailPassword(
   password: string,
 ) {
   const normalizedEmail = email.trim().toLowerCase();
+  const configuredRedirect = (
+    import.meta.env.VITE_AUTH_REDIRECT_URL as string | undefined
+  )?.trim();
   const redirectTo =
-    typeof window !== "undefined"
+    configuredRedirect && /^https?:\/\//i.test(configuredRedirect)
+      ? configuredRedirect
+      : typeof window !== "undefined"
       ? `${window.location.origin}/`
       : undefined;
   const { data, error } = await supabase.auth.signUp({
