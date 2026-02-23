@@ -279,7 +279,7 @@ export default function MarketplaceTab({
                   variant="primary"
                   onClick={() => setCreateMenuOpen((v) => !v)}
                 >
-                  List your band
+                  List your business
                 </Button>
                 {createMenuOpen && (
                   <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-gray-200 bg-white shadow-soft p-2 z-20">
