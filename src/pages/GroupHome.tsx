@@ -518,6 +518,10 @@ export function GroupHome({
   const [orderLoaded, setOrderLoaded] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const orderSyncRef = useRef<string>("");
+  const marqueeItems = useMemo(() => {
+    if (marketHighlights.length === 0) return [];
+    return [...marketHighlights, ...marketHighlights];
+  }, [marketHighlights]);
 
   useEffect(() => {
     let mounted = true;
@@ -2137,10 +2141,25 @@ export function GroupHome({
               </Button>
             </div>
             <div className="mt-3 -mx-1 overflow-x-auto">
-              <div className="flex gap-3 px-1 pb-1">
-                {marketHighlights.map((item) => (
+              <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white/70">
+                <style>{`
+                  @keyframes marketMarquee {
+                    from { transform: translateX(0); }
+                    to { transform: translateX(-50%); }
+                  }
+                `}</style>
+                <div
+                  className="flex w-max gap-3 px-3 py-3"
+                  style={{
+                    animation:
+                      marqueeItems.length > 0
+                        ? "marketMarquee 34s linear infinite"
+                        : undefined,
+                  }}
+                >
+                {marqueeItems.map((item, idx) => (
                   <button
-                    key={item.id}
+                    key={`${item.id}-${idx}`}
                     type="button"
                     onClick={() => setTabAndScroll("marketplace")}
                     className="w-[220px] shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-soft hover:shadow-md transition"
@@ -2181,7 +2200,7 @@ export function GroupHome({
                     </div>
                   </button>
                 ))}
-                {marketHighlights.length === 0 && (
+                {marqueeItems.length === 0 && (
                   <button
                     type="button"
                     onClick={() => setTabAndScroll("marketplace")}
@@ -2195,6 +2214,7 @@ export function GroupHome({
                     </div>
                   </button>
                 )}
+                </div>
               </div>
             </div>
           </Card>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
@@ -53,6 +53,7 @@ export default function MarketplaceTab({
 
   const [showForm, setShowForm] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const createMenuRef = useRef<HTMLDivElement | null>(null);
   const [draft, setDraft] = useState({
     name: "",
     listingType: "event_booking",
@@ -170,6 +171,25 @@ export default function MarketplaceTab({
     };
   }, [me?.userId]);
 
+  useEffect(() => {
+    if (!createMenuOpen) return;
+    function onClick(event: MouseEvent) {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (createMenuRef.current?.contains(target)) return;
+      setCreateMenuOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setCreateMenuOpen(false);
+    }
+    window.addEventListener("mousedown", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [createMenuOpen]);
+
   async function handleSaveProfile() {
     if (!me) return;
     if (!draft.name.trim()) {
@@ -261,7 +281,7 @@ export default function MarketplaceTab({
 
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="overflow-visible">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-xl font-extrabold text-gray-900">
@@ -274,15 +294,19 @@ export default function MarketplaceTab({
           </div>
           <div className="flex gap-2">
             {me ? (
-              <div className="relative">
+              <div
+                ref={createMenuRef}
+                className="relative w-full sm:w-auto"
+              >
                 <Button
                   variant="primary"
                   onClick={() => setCreateMenuOpen((v) => !v)}
+                  className="w-full sm:w-auto"
                 >
                   List your business
                 </Button>
                 {createMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-gray-200 bg-white shadow-soft p-2 z-20">
+                  <div className="absolute left-0 right-0 mt-2 sm:left-auto sm:right-0 sm:w-72 rounded-2xl border border-gray-200 bg-white shadow-soft p-2 z-[60]">
                     <div className="px-2 pb-2 text-xs font-semibold text-gray-500">
                       Create listing
                     </div>
