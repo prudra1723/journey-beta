@@ -1309,9 +1309,16 @@ export type BandProfile = {
   id: string;
   ownerId: string;
   name: string;
+  listingType?: string | null;
+  listingSubType?: string | null;
+  genre?: string | null;
   bandType?: string | null;
+  businessType?: string | null;
   description?: string | null;
   location?: string | null;
+  directionsUrl?: string | null;
+  websiteUrl?: string | null;
+  services?: string[];
   coverRange?: string | null;
   youtubeUrl?: string | null;
   coverImageUrl?: string | null;
@@ -1346,9 +1353,16 @@ function mapBandProfile(row: any): BandProfile {
     id: row.id,
     ownerId: row.owner_id,
     name: row.name,
+    listingType: row.listing_type ?? null,
+    listingSubType: row.listing_sub_type ?? null,
+    genre: row.genre ?? null,
     bandType: row.band_type ?? null,
+    businessType: row.business_type ?? null,
     description: row.description ?? null,
     location: row.location ?? null,
+    directionsUrl: row.directions_url ?? null,
+    websiteUrl: row.website_url ?? null,
+    services: Array.isArray(row.services) ? row.services : [],
     coverRange: row.cover_range ?? null,
     youtubeUrl: row.youtube_url ?? null,
     coverImageUrl: row.cover_image_url ?? null,
@@ -1385,9 +1399,16 @@ export async function upsertBandProfile(
   ownerId: string,
   payload: {
     name: string;
+    listingType?: string;
+    listingSubType?: string;
+    genre?: string;
     bandType?: string;
+    businessType?: string;
     description?: string;
     location?: string;
+    directionsUrl?: string;
+    websiteUrl?: string;
+    services?: string[];
     coverRange?: string;
     youtubeUrl?: string;
     coverImageUrl?: string | null;
@@ -1400,9 +1421,16 @@ export async function upsertBandProfile(
   const data = {
     owner_id: ownerId,
     name: payload.name,
+    listing_type: payload.listingType ?? null,
+    listing_sub_type: payload.listingSubType ?? null,
+    genre: payload.genre ?? null,
     band_type: payload.bandType ?? null,
+    business_type: payload.businessType ?? null,
     description: payload.description ?? null,
     location: payload.location ?? null,
+    directions_url: payload.directionsUrl ?? null,
+    website_url: payload.websiteUrl ?? null,
+    services: payload.services ?? [],
     cover_range: payload.coverRange ?? null,
     youtube_url: payload.youtubeUrl ?? null,
     cover_image_url: payload.coverImageUrl ?? null,

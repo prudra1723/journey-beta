@@ -185,9 +185,16 @@ create table if not exists band_profiles (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid references profiles(id) on delete cascade,
   name text not null,
+  listing_type text,
+  listing_sub_type text,
+  genre text,
   band_type text,
+  business_type text,
   description text,
   location text,
+  directions_url text,
+  website_url text,
+  services jsonb default '[]'::jsonb,
   cover_range text,
   youtube_url text,
   cover_image_url text,
@@ -195,6 +202,14 @@ create table if not exists band_profiles (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+alter table band_profiles add column if not exists listing_type text;
+alter table band_profiles add column if not exists listing_sub_type text;
+alter table band_profiles add column if not exists genre text;
+alter table band_profiles add column if not exists business_type text;
+alter table band_profiles add column if not exists directions_url text;
+alter table band_profiles add column if not exists website_url text;
+alter table band_profiles add column if not exists services jsonb default '[]'::jsonb;
 
 create unique index if not exists band_profiles_owner_unique
   on band_profiles (owner_id);

@@ -25,6 +25,19 @@ function formatAvailability(list: string[]) {
   return list.filter(Boolean).slice(0, 3).join(" · ");
 }
 
+function cardTone(listingType?: string | null) {
+  if (listingType === "event_booking") {
+    return "border-blue-200 bg-blue-50/40";
+  }
+  if (listingType === "business_promotion") {
+    return "border-emerald-200 bg-emerald-50/40";
+  }
+  if (listingType === "for_sale") {
+    return "border-amber-200 bg-amber-50/40";
+  }
+  return "border-gray-200 bg-white";
+}
+
 export default function MarketplaceTab({
   me,
   uploadScope,
@@ -42,9 +55,16 @@ export default function MarketplaceTab({
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState({
     name: "",
+    listingType: "event_booking",
+    listingSubType: "live_music_band_booking",
+    genre: "",
     bandType: "",
+    businessType: "",
     description: "",
     location: "",
+    directionsUrl: "",
+    websiteUrl: "",
+    servicesText: "",
     coverRange: "",
     youtubeUrl: "",
     availabilityText: "",
@@ -69,6 +89,12 @@ export default function MarketplaceTab({
       .map((x) => x.trim())
       .filter(Boolean);
   }, [draft.availabilityText]);
+  const servicesList = useMemo(() => {
+    return draft.servicesText
+      .split("\n")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }, [draft.servicesText]);
 
   useEffect(() => {
     let active = true;
@@ -86,9 +112,16 @@ export default function MarketplaceTab({
           if (mine) {
             setDraft({
               name: mine.name,
+              listingType: mine.listingType ?? "event_booking",
+              listingSubType: mine.listingSubType ?? "live_music_band_booking",
+              genre: mine.genre ?? "",
               bandType: mine.bandType ?? "",
+              businessType: mine.businessType ?? "",
               description: mine.description ?? "",
               location: mine.location ?? "",
+              directionsUrl: mine.directionsUrl ?? "",
+              websiteUrl: mine.websiteUrl ?? "",
+              servicesText: (mine.services ?? []).join("\n"),
               coverRange: mine.coverRange ?? "",
               youtubeUrl: mine.youtubeUrl ?? "",
               availabilityText: (mine.availability ?? []).join("\n"),
@@ -124,9 +157,16 @@ export default function MarketplaceTab({
     }
     const saved = await upsertBandProfile(me.userId, {
       name: draft.name.trim(),
+      listingType: draft.listingType,
+      listingSubType: draft.listingSubType.trim(),
+      genre: draft.genre.trim(),
       bandType: draft.bandType.trim(),
+      businessType: draft.businessType.trim(),
       description: draft.description.trim(),
       location: draft.location.trim(),
+      directionsUrl: draft.directionsUrl.trim(),
+      websiteUrl: draft.websiteUrl.trim(),
+      services: servicesList,
       coverRange: draft.coverRange.trim(),
       youtubeUrl: draft.youtubeUrl.trim(),
       coverImageUrl: draft.coverImageUrl || null,
@@ -247,6 +287,91 @@ export default function MarketplaceTab({
             </div>
             <div>
               <label className="text-xs font-semibold text-gray-600">
+                Listing category
+              </label>
+              <select
+                value={draft.listingType}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    listingType: e.target.value,
+                    listingSubType:
+                      e.target.value === "event_booking"
+                        ? "live_music_band_booking"
+                        : e.target.value === "business_promotion"
+                          ? "business_listing"
+                          : "item_for_sale",
+                  }))
+                }
+                className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+              >
+                <option value="event_booking">Event booking</option>
+                <option value="business_promotion">Business promotion</option>
+                <option value="for_sale">For sale</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600">
+                Listing type
+              </label>
+              <select
+                value={draft.listingSubType}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    listingSubType: e.target.value,
+                  }))
+                }
+                className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+              >
+                {draft.listingType === "event_booking" && (
+                  <>
+                    <option value="live_music_band_booking">
+                      Live music band booking
+                    </option>
+                    <option value="event_entertainment">Event entertainment</option>
+                  </>
+                )}
+                {draft.listingType === "business_promotion" && (
+                  <>
+                    <option value="business_listing">Business listing</option>
+                    <option value="service_provider">Service provider</option>
+                  </>
+                )}
+                {draft.listingType === "for_sale" && (
+                  <>
+                    <option value="item_for_sale">Item for sale</option>
+                    <option value="promotion_offer">Promotion offer</option>
+                  </>
+                )}
+              </select>
+            </div>
+            {draft.listingType === "event_booking" &&
+              draft.listingSubType === "live_music_band_booking" && (
+                <div>
+                  <label className="text-xs font-semibold text-gray-600">
+                    Genre
+                  </label>
+                  <select
+                    value={draft.genre}
+                    onChange={(e) =>
+                      setDraft((prev) => ({ ...prev, genre: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                  >
+                    <option value="">Select genre</option>
+                    <option value="Rock">Rock</option>
+                    <option value="Pop">Pop</option>
+                    <option value="Bollywood">Bollywood</option>
+                    <option value="Jazz">Jazz</option>
+                    <option value="Acoustic">Acoustic</option>
+                    <option value="DJ">DJ</option>
+                    <option value="Fusion">Fusion</option>
+                  </select>
+                </div>
+              )}
+            <div>
+              <label className="text-xs font-semibold text-gray-600">
                 Band type
               </label>
               <input
@@ -260,6 +385,22 @@ export default function MarketplaceTab({
             </div>
             <div>
               <label className="text-xs font-semibold text-gray-600">
+                Business type
+              </label>
+              <input
+                value={draft.businessType}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    businessType: e.target.value,
+                  }))
+                }
+                className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                placeholder="Band, Event planner, Venue..."
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600">
                 Location
               </label>
               <input
@@ -269,6 +410,22 @@ export default function MarketplaceTab({
                 }
                 className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                 placeholder="City / Region"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600">
+                Directions link
+              </label>
+              <input
+                value={draft.directionsUrl}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    directionsUrl: e.target.value,
+                  }))
+                }
+                className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                placeholder="https://maps.google.com/..."
               />
             </div>
             <div>
@@ -295,6 +452,19 @@ export default function MarketplaceTab({
                 }
                 className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                 placeholder="https://youtube.com/..."
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600">
+                Website
+              </label>
+              <input
+                value={draft.websiteUrl}
+                onChange={(e) =>
+                  setDraft((prev) => ({ ...prev, websiteUrl: e.target.value }))
+                }
+                className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                placeholder="https://yourbusiness.com"
               />
             </div>
             <div>
@@ -329,6 +499,22 @@ export default function MarketplaceTab({
                 }
                 className="mt-1 w-full min-h-[90px] rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                 placeholder="Fri 7pm-10pm\nSat 5pm-9pm"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs font-semibold text-gray-600">
+                Services to promote (one per line)
+              </label>
+              <textarea
+                value={draft.servicesText}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    servicesText: e.target.value,
+                  }))
+                }
+                className="mt-1 w-full min-h-[90px] rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                placeholder="Live event performance\nWedding package\nCorporate booking"
               />
             </div>
             <div className="sm:col-span-2">
@@ -374,7 +560,10 @@ export default function MarketplaceTab({
         {profiles.map((band) => (
           <div
             key={band.id}
-            className="rounded-3xl border border-gray-200 bg-white shadow-soft overflow-hidden flex flex-col"
+            className={[
+              "rounded-3xl border shadow-soft overflow-hidden flex flex-col",
+              cardTone(band.listingType),
+            ].join(" ")}
           >
             <div className="h-40 bg-gray-100 overflow-hidden">
               {band.coverImageUrl ? (
@@ -394,8 +583,24 @@ export default function MarketplaceTab({
                 {band.name}
               </div>
               <div className="text-xs text-gray-500">
-                {band.bandType || "Band"} · {band.location || "Location TBA"}
+                {(band.listingType ?? "listing")
+                  .replace(/_/g, " ")
+                  .replace(/\b\w/g, (m) => m.toUpperCase())}
+                {" · "}
+                {band.location || "Location TBA"}
               </div>
+              {(band.listingSubType || band.genre) && (
+                <div className="text-xs text-gray-600">
+                  {[band.listingSubType, band.genre]
+                    .filter(Boolean)
+                    .map((x) =>
+                      String(x)
+                        .replace(/_/g, " ")
+                        .replace(/\b\w/g, (m) => m.toUpperCase()),
+                    )
+                    .join(" · ")}
+                </div>
+              )}
               {band.coverRange && (
                 <div className="text-xs text-gray-500">
                   Cover range: {band.coverRange}
@@ -415,6 +620,38 @@ export default function MarketplaceTab({
                 >
                   View YouTube portfolio
                 </a>
+              )}
+              {band.websiteUrl && (
+                <a
+                  className="text-xs font-semibold text-emerald-700 hover:underline"
+                  href={band.websiteUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Visit website
+                </a>
+              )}
+              {band.directionsUrl && (
+                <a
+                  className="text-xs font-semibold text-emerald-700 hover:underline"
+                  href={band.directionsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open directions
+                </a>
+              )}
+              {band.services && band.services.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {band.services.slice(0, 4).map((service, i) => (
+                    <span
+                      key={`${band.id}-service-${i}`}
+                      className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-600"
+                    >
+                      {service}
+                    </span>
+                  ))}
+                </div>
               )}
               <div className="mt-auto flex gap-2">
                 <Button

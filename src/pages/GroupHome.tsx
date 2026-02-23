@@ -17,6 +17,7 @@ import {
   deletePlanItem,
   getGroup,
   getGroupMeta,
+  getBandProfiles,
   getMyRole,
   getPlan,
   getTimeline,
@@ -66,6 +67,16 @@ type NotificationItem = {
   createdAt: number;
   createdBy: { userId: string; name: string };
   groupId?: string;
+};
+
+type MarketHighlight = {
+  id: string;
+  name: string;
+  listingType?: string | null;
+  listingSubType?: string | null;
+  genre?: string | null;
+  location?: string | null;
+  coverImageUrl?: string | null;
 };
 
 const ABOUT_OPTIONS = [
@@ -406,6 +417,9 @@ export function GroupHome({
   const [notifCount, setNotifCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifItems, setNotifItems] = useState<NotificationItem[]>([]);
+  const [marketHighlights, setMarketHighlights] = useState<MarketHighlight[]>(
+    [],
+  );
   const notifMenuRef = useRef<HTMLDivElement | null>(null);
   const notifLatestRef = useRef(0);
   const notifSeenRef = useRef(0);
@@ -821,6 +835,34 @@ export function GroupHome({
       window.clearInterval(t);
     };
   }, [session?.userId]);
+
+  useEffect(() => {
+    let active = true;
+    const loadMarketplace = async () => {
+      try {
+        const list = await getBandProfiles();
+        if (!active) return;
+        setMarketHighlights(
+          list.slice(0, 10).map((item) => ({
+            id: item.id,
+            name: item.name,
+            listingType: item.listingType,
+            listingSubType: item.listingSubType,
+            genre: item.genre,
+            location: item.location,
+            coverImageUrl: item.coverImageUrl,
+          })),
+        );
+      } catch {
+        if (!active) return;
+        setMarketHighlights([]);
+      }
+    };
+    loadMarketplace();
+    return () => {
+      active = false;
+    };
+  }, [tab, me?.userId]);
 
   useEffect(() => {
     if (!session?.userId) return;
@@ -2076,6 +2118,86 @@ export function GroupHome({
       <div className="journey-content">
         <main className="mx-auto w-[95%] max-w-6xl pt-5 pb-24 sm:pb-5 space-y-5">
         <div className={tab === "timeline" ? "-mt-3 sm:-mt-4" : "hidden"}>
+          <Card className="mb-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-extrabold text-gray-900">
+                  Marketplace spotlight
+                </div>
+                <p className="text-sm text-gray-600">
+                  Event booking, business promotions, and live music listings.
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={() => setTabAndScroll("marketplace")}
+                className="shrink-0"
+              >
+                Open market
+              </Button>
+            </div>
+            <div className="mt-3 -mx-1 overflow-x-auto">
+              <div className="flex gap-3 px-1 pb-1">
+                {marketHighlights.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setTabAndScroll("marketplace")}
+                    className="w-[220px] shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-soft hover:shadow-md transition"
+                  >
+                    <div className="h-28 w-full bg-gray-100">
+                      {item.coverImageUrl ? (
+                        <img
+                          src={item.coverImageUrl}
+                          alt={item.name}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center text-xs font-semibold text-gray-400">
+                          No cover
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-3">
+                      <div className="truncate text-sm font-extrabold text-gray-900">
+                        {item.name}
+                      </div>
+                      <div className="mt-1 text-[11px] font-semibold text-blue-700">
+                        {(item.listingType ?? "listing")
+                          .replace(/_/g, " ")
+                          .replace(/\b\w/g, (m) => m.toUpperCase())}
+                      </div>
+                      <div className="mt-1 text-[11px] text-gray-600 truncate">
+                        {[item.listingSubType, item.genre, item.location]
+                          .filter(Boolean)
+                          .map((x) =>
+                            String(x)
+                              .replace(/_/g, " ")
+                              .replace(/\b\w/g, (m) => m.toUpperCase()),
+                          )
+                          .join(" · ") || "Tap to view listing"}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                {marketHighlights.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTabAndScroll("marketplace")}
+                    className="w-[220px] shrink-0 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-left"
+                  >
+                    <div className="text-sm font-extrabold text-gray-900">
+                      Open Marketplace
+                    </div>
+                    <div className="mt-1 text-xs text-gray-600">
+                      No listings yet. Tap to add your first listing.
+                    </div>
+                  </button>
+                )}
+              </div>
+            </div>
+          </Card>
           <TimelineTab
             groupId={groupId}
             onMediaRefresh={() => setMediaVersion((v) => v + 1)}
