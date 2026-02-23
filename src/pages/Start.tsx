@@ -66,17 +66,17 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
     name.trim().length >= 2 &&
     emailValid &&
     passwordValid &&
-    pinValid &&
+    (authMode === "signup" || pinValid) &&
+    privacyAck &&
+    termsAck &&
+    cookiesAck &&
     (authMode === "login" || confirmPassword === password);
   const canContinueGroup =
     !keyIssue &&
     name.trim().length >= 2 &&
     (mode === "create"
       ? groupName.trim().length >= 2
-      : inviteCode.trim().length >= 4) &&
-    privacyAck &&
-    termsAck &&
-    cookiesAck;
+      : inviteCode.trim().length >= 4);
 
   const withTimeout = async <T,>(p: Promise<T>, label: string) => {
     const timeout = new Promise<never>((_, reject) =>
@@ -128,7 +128,7 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
 
       if (!userId) throw new Error("Authentication failed.");
 
-      // Enforce optional PIN for returning accounts.
+      // Enforce optional PIN for returning accounts and keep canonical profile name.
       const existingProfile = await withTimeout(getProfile(userId), "Profile load");
       const existingPin =
         (existingProfile as { login_pin?: string | null } | null)?.login_pin ??
@@ -137,18 +137,28 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
         await signOut();
         throw new Error("Invalid PIN. Enter the correct login PIN.");
       }
+      const existingName =
+        (existingProfile as { display_name?: string | null } | null)
+          ?.display_name ?? null;
+      const finalDisplayName =
+        authMode === "login" && existingName?.trim()
+          ? existingName.trim()
+          : trimmedName;
+      if (authMode === "login" && existingName?.trim()) {
+        setName(existingName.trim());
+      }
 
       setStep("profile:ensure");
       const profile = await withTimeout(
         ensureProfile(
           userId,
-          trimmedName,
+          finalDisplayName,
           normalizedEmail,
-          pinValue || undefined,
+          undefined,
         ),
         "Profile setup",
       );
-      setSessionFromProfile(profile.id, profile.display_name ?? trimmedName);
+      setSessionFromProfile(profile.id, profile.display_name ?? finalDisplayName);
       setAuthUserId(profile.id);
       setStage("group");
       setStep("auth:ready");
@@ -356,27 +366,87 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
                     </div>
                   )}
 
-                  <div>
-                    <label className="text-sm font-semibold text-gray-900">
-                      Login PIN (optional)
+                  {authMode === "login" && (
+                    <div>
+                      <label className="text-sm font-semibold text-gray-900">
+                        Login PIN (optional)
+                      </label>
+                      <input
+                        value={pin}
+                        onChange={(e) => setPin(e.target.value)}
+                        placeholder="Enter PIN if your account has one"
+                        type="password"
+                        inputMode="numeric"
+                        className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                      />
+                      {!pinValid && (
+                        <div className="mt-2 text-xs text-red-600">
+                          PIN must be 4 to 8 digits.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-3">
+                  <div className="text-xs font-semibold text-gray-700">
+                    Privacy, Terms & Cookies
+                  </div>
+                  <div className="mt-2 space-y-2 text-[11px] text-gray-600">
+                    <p>
+                      This app is for testing and group member use only. You can
+                      create or join a group using an invite code.
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <Link
+                        to="/privacy"
+                        className="font-semibold text-blue-600 hover:underline"
+                      >
+                        Read Privacy Policy
+                      </Link>
+                      <Link
+                        to="/terms"
+                        className="font-semibold text-blue-600 hover:underline"
+                      >
+                        Read Terms
+                      </Link>
+                      <Link
+                        to="/cookies"
+                        className="font-semibold text-blue-600 hover:underline"
+                      >
+                        Cookies Policy
+                      </Link>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 space-y-2 text-xs font-semibold text-gray-700">
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={privacyAck}
+                        onChange={(e) => setPrivacyAck(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>I understand the privacy policy.</span>
                     </label>
-                    <input
-                      value={pin}
-                      onChange={(e) => setPin(e.target.value)}
-                      placeholder={
-                        authMode === "signup"
-                          ? "Set optional 4-8 digit PIN"
-                          : "Enter PIN if your account has one"
-                      }
-                      type="password"
-                      inputMode="numeric"
-                      className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
-                    />
-                    {!pinValid && (
-                      <div className="mt-2 text-xs text-red-600">
-                        PIN must be 4 to 8 digits.
-                      </div>
-                    )}
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={termsAck}
+                        onChange={(e) => setTermsAck(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>I agree to the terms and conditions.</span>
+                    </label>
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={cookiesAck}
+                        onChange={(e) => setCookiesAck(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>I acknowledge cookies/local storage usage.</span>
+                    </label>
                   </div>
                 </div>
 
@@ -526,67 +596,6 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
                   </Button>
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-3">
-                  <div className="text-xs font-semibold text-gray-700">
-                    Privacy, Terms & Cookies
-                  </div>
-                  <div className="mt-2 space-y-2 text-[11px] text-gray-600">
-                    <p>
-                      This app is for testing and group member use only. You can
-                      create or join a group using an invite code.
-                    </p>
-                    <div className="flex flex-wrap gap-3">
-                      <Link
-                        to="/privacy"
-                        className="font-semibold text-blue-600 hover:underline"
-                      >
-                        Read Privacy Policy
-                      </Link>
-                      <Link
-                        to="/terms"
-                        className="font-semibold text-blue-600 hover:underline"
-                      >
-                        Read Terms
-                      </Link>
-                      <Link
-                        to="/cookies"
-                        className="font-semibold text-blue-600 hover:underline"
-                      >
-                        Cookies Policy
-                      </Link>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 space-y-2 text-xs font-semibold text-gray-700">
-                    <label className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={privacyAck}
-                        onChange={(e) => setPrivacyAck(e.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span>I understand the privacy policy.</span>
-                    </label>
-                    <label className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={termsAck}
-                        onChange={(e) => setTermsAck(e.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span>I agree to the terms and conditions.</span>
-                    </label>
-                    <label className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={cookiesAck}
-                        onChange={(e) => setCookiesAck(e.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span>I acknowledge cookies/local storage usage.</span>
-                    </label>
-                  </div>
-                </div>
               </>
             )}
 

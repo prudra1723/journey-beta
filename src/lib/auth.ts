@@ -23,7 +23,17 @@ export async function signUpWithEmailPassword(
       emailRedirectTo: redirectTo,
     },
   });
-  if (error) throw error;
+  if (error) {
+    if (/already registered/i.test(error.message)) {
+      throw new Error("Email already registered. Please login.");
+    }
+    throw error;
+  }
+  // Supabase may return an obfuscated user for existing emails.
+  const identities = (data.user as { identities?: unknown[] } | null)?.identities;
+  if (data.user && Array.isArray(identities) && identities.length === 0) {
+    throw new Error("Email already registered. Please login.");
+  }
   return data;
 }
 

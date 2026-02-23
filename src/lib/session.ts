@@ -1,7 +1,7 @@
 import { readJSON, writeJSON } from "./storage";
 import type { BetaUser } from "./betaDb";
 
-const SESSION_KEY = "journey_beta_session_v1";
+const SESSION_KEY = "journey_beta_session_v2";
 const LAST_GROUP_KEY = "journey_beta_last_group_v1";
 
 export type BetaSession = {
