@@ -46,13 +46,13 @@ export default function MarketplaceTab({
   uploadScope: string;
 }) {
   const [profiles, setProfiles] = useState<BandProfile[]>([]);
-  const [myProfile, setMyProfile] = useState<BandProfile | null>(null);
   const [incoming, setIncoming] = useState<BandBookingRequest[]>([]);
   const [outgoing, setOutgoing] = useState<BandBookingRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [draft, setDraft] = useState({
     name: "",
     listingType: "event_booking",
@@ -96,6 +96,44 @@ export default function MarketplaceTab({
       .filter(Boolean);
   }, [draft.servicesText]);
 
+  function applyProfileToDraft(profile: BandProfile) {
+    setDraft({
+      name: profile.name,
+      listingType: profile.listingType ?? "event_booking",
+      listingSubType: profile.listingSubType ?? "live_music_band_booking",
+      genre: profile.genre ?? "",
+      bandType: profile.bandType ?? "",
+      businessType: profile.businessType ?? "",
+      description: profile.description ?? "",
+      location: profile.location ?? "",
+      directionsUrl: profile.directionsUrl ?? "",
+      websiteUrl: profile.websiteUrl ?? "",
+      servicesText: (profile.services ?? []).join("\n"),
+      coverRange: profile.coverRange ?? "",
+      youtubeUrl: profile.youtubeUrl ?? "",
+      availabilityText: (profile.availability ?? []).join("\n"),
+      coverImageUrl: profile.coverImageUrl ?? "",
+    });
+  }
+
+  function openCreateForm(
+    listingType: "event_booking" | "business_promotion" | "for_sale",
+    listingSubType: string,
+  ) {
+    setCreateMenuOpen(false);
+    setDraft((prev) => ({
+      ...prev,
+      listingType,
+      listingSubType,
+      genre:
+        listingType === "event_booking" &&
+        listingSubType === "live_music_band_booking"
+          ? prev.genre
+          : "",
+    }));
+    setShowForm(true);
+  }
+
   useEffect(() => {
     let active = true;
     async function load() {
@@ -108,25 +146,8 @@ export default function MarketplaceTab({
         if (me) {
           const mine = await getMyBandProfile(me.userId);
           if (!active) return;
-          setMyProfile(mine);
           if (mine) {
-            setDraft({
-              name: mine.name,
-              listingType: mine.listingType ?? "event_booking",
-              listingSubType: mine.listingSubType ?? "live_music_band_booking",
-              genre: mine.genre ?? "",
-              bandType: mine.bandType ?? "",
-              businessType: mine.businessType ?? "",
-              description: mine.description ?? "",
-              location: mine.location ?? "",
-              directionsUrl: mine.directionsUrl ?? "",
-              websiteUrl: mine.websiteUrl ?? "",
-              servicesText: (mine.services ?? []).join("\n"),
-              coverRange: mine.coverRange ?? "",
-              youtubeUrl: mine.youtubeUrl ?? "",
-              availabilityText: (mine.availability ?? []).join("\n"),
-              coverImageUrl: mine.coverImageUrl ?? "",
-            });
+            applyProfileToDraft(mine);
           }
           const [incomingReq, outgoingReq] = await Promise.all([
             getBandRequestsIncoming(me.userId),
@@ -155,7 +176,7 @@ export default function MarketplaceTab({
       alert("Band name required.");
       return;
     }
-    const saved = await upsertBandProfile(me.userId, {
+    await upsertBandProfile(me.userId, {
       name: draft.name.trim(),
       listingType: draft.listingType,
       listingSubType: draft.listingSubType.trim(),
@@ -172,7 +193,6 @@ export default function MarketplaceTab({
       coverImageUrl: draft.coverImageUrl || null,
       availability: availabilityList,
     });
-    setMyProfile(saved);
     setShowForm(false);
     const list = await getBandProfiles();
     setProfiles(list);
@@ -254,12 +274,66 @@ export default function MarketplaceTab({
           </div>
           <div className="flex gap-2">
             {me ? (
-              <Button
-                variant="primary"
-                onClick={() => setShowForm((v) => !v)}
-              >
-                {myProfile ? "Edit your band" : "List your band"}
-              </Button>
+              <div className="relative">
+                <Button
+                  variant="primary"
+                  onClick={() => setCreateMenuOpen((v) => !v)}
+                >
+                  List your band
+                </Button>
+                {createMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-gray-200 bg-white shadow-soft p-2 z-20">
+                    <div className="px-2 pb-2 text-xs font-semibold text-gray-500">
+                      Create listing
+                    </div>
+                    <button
+                      type="button"
+                      className="w-full rounded-xl px-3 py-2 text-left hover:bg-gray-50"
+                      onClick={() =>
+                        openCreateForm(
+                          "event_booking",
+                          "live_music_band_booking",
+                        )
+                      }
+                    >
+                      <div className="text-sm font-semibold text-gray-900">
+                        Event booking
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Live music band booking
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="mt-1 w-full rounded-xl px-3 py-2 text-left hover:bg-gray-50"
+                      onClick={() =>
+                        openCreateForm("business_promotion", "business_listing")
+                      }
+                    >
+                      <div className="text-sm font-semibold text-gray-900">
+                        Business promotion
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Promote services and business profile
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="mt-1 w-full rounded-xl px-3 py-2 text-left hover:bg-gray-50"
+                      onClick={() =>
+                        openCreateForm("for_sale", "item_for_sale")
+                      }
+                    >
+                      <div className="text-sm font-semibold text-gray-900">
+                        For sale
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        List items or offers for sale
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="text-xs font-semibold text-gray-500">
                 Login to list or request.
@@ -271,6 +345,9 @@ export default function MarketplaceTab({
 
       {showForm && (
         <Card>
+          <div className="mb-3 text-sm font-semibold text-gray-700">
+            Create marketplace listing
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-xs font-semibold text-gray-600">
@@ -654,6 +731,19 @@ export default function MarketplaceTab({
                 </div>
               )}
               <div className="mt-auto flex gap-2">
+                {me?.userId === band.ownerId && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      applyProfileToDraft(band);
+                      setCreateMenuOpen(false);
+                      setShowForm(true);
+                    }}
+                    className="w-full"
+                  >
+                    Edit this card
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   onClick={() => setRequestBand(band)}
