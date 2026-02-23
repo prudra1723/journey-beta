@@ -2,7 +2,14 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
-import { ensureProfile, getAuthSession, signInAnonymously } from "../lib/auth";
+import {
+  ensureProfile,
+  getAuthSession,
+  getProfile,
+  signInWithEmailPassword,
+  signOut,
+  signUpWithEmailPassword,
+} from "../lib/auth";
 import { setSessionFromProfile } from "../lib/session";
 import { createGroup, getGroupByCode, joinGroup } from "../lib/appDb";
 
@@ -26,8 +33,14 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
     initialCode ? "join" : "create",
   );
   const [stage, setStage] = useState<"identity" | "group">("identity");
+  const [authMode, setAuthMode] = useState<"signup" | "login">("signup");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pin, setPin] = useState("");
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [groupName, setGroupName] = useState("");
   const [inviteCode, setInviteCode] = useState(initialCode);
 
@@ -45,8 +58,16 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
     () => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailKey),
     [emailKey],
   );
+  const passwordValid = password.length >= 6;
+  const pinValid = pin.trim().length === 0 || /^\d{4,8}$/.test(pin.trim());
 
-  const canContinueIdentity = !keyIssue && name.trim().length >= 2 && emailValid;
+  const canContinueIdentity =
+    !keyIssue &&
+    name.trim().length >= 2 &&
+    emailValid &&
+    passwordValid &&
+    pinValid &&
+    (authMode === "login" || confirmPassword === password);
   const canContinueGroup =
     !keyIssue &&
     name.trim().length >= 2 &&
@@ -64,10 +85,79 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
     return Promise.race([p, timeout]);
   };
 
-  function handleIdentityContinue() {
+  async function handleIdentityContinue() {
     if (!canContinueIdentity || busy) return;
-    setError(null);
-    setStage("group");
+    try {
+      setBusy(true);
+      setError(null);
+      setAuthNotice(null);
+      const trimmedName = name.trim();
+      const normalizedEmail = email.trim().toLowerCase();
+      const pinValue = pin.trim();
+
+      setStep(`auth:${authMode}`);
+      let userId: string | null = null;
+
+      if (authMode === "signup") {
+        const signup = await withTimeout(
+          signUpWithEmailPassword(normalizedEmail, password),
+          "Sign up",
+        );
+        const signupUserId =
+          signup.user?.id ?? signup.session?.user?.id ?? null;
+        if (!signupUserId) {
+          throw new Error("Sign up failed.");
+        }
+
+        if (!signup.session) {
+          setAuthNotice(
+            "Verification email sent. Verify your email, then sign in to continue.",
+          );
+          setAuthMode("login");
+          setStep("auth:verify_email");
+          return;
+        }
+        userId = signupUserId;
+      } else {
+        const signin = await withTimeout(
+          signInWithEmailPassword(normalizedEmail, password),
+          "Sign in",
+        );
+        userId = signin.user?.id ?? signin.session?.user?.id ?? null;
+      }
+
+      if (!userId) throw new Error("Authentication failed.");
+
+      // Enforce optional PIN for returning accounts.
+      const existingProfile = await withTimeout(getProfile(userId), "Profile load");
+      const existingPin =
+        (existingProfile as { login_pin?: string | null } | null)?.login_pin ??
+        null;
+      if (authMode === "login" && existingPin && pinValue !== existingPin) {
+        await signOut();
+        throw new Error("Invalid PIN. Enter the correct login PIN.");
+      }
+
+      setStep("profile:ensure");
+      const profile = await withTimeout(
+        ensureProfile(
+          userId,
+          trimmedName,
+          normalizedEmail,
+          pinValue || undefined,
+        ),
+        "Profile setup",
+      );
+      setSessionFromProfile(profile.id, profile.display_name ?? trimmedName);
+      setAuthUserId(profile.id);
+      setStage("group");
+      setStep("auth:ready");
+    } catch (err: any) {
+      setStep("error");
+      setError(err?.message || "Could not authenticate.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleGroupContinue() {
@@ -97,43 +187,32 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
           throw new Error("Invalid invite code.");
         }
         setNameHint(
-          "Joining creates a new device session (names can be reused).",
+          "Joining keeps your verified account and existing profile data.",
         );
       }
 
-      // ✅ Reuse existing session if present; only create a new anon session if needed
+      // Ensure authenticated user id exists (identity step should set it).
       setStep("auth:checkSession");
-      const sessionRes = await withTimeout(getAuthSession(), "Session check");
-      const existingUserId = sessionRes?.data?.session?.user?.id ?? null;
-
-      let authUserId = existingUserId;
-      if (!authUserId) {
-        setStep("auth:signInAnonymously");
-        const auth = await withTimeout(signInAnonymously(), "Guest login");
-        authUserId = auth?.user?.id ?? auth?.session?.user?.id ?? null;
+      let currentUserId = authUserId;
+      if (!currentUserId) {
+        const sessionRes = await withTimeout(getAuthSession(), "Session check");
+        currentUserId = sessionRes?.data?.session?.user?.id ?? null;
       }
-      if (!authUserId) throw new Error("Anonymous login failed");
-
-      // ✅ Ensure profile (should be UPSERT in auth.ts)
-      setStep("profile:ensure");
-      const profile = await withTimeout(
-        ensureProfile(authUserId, trimmedName, email.trim()),
-        "Profile setup",
-      );
-
-      setSessionFromProfile(profile.id, profile.display_name ?? trimmedName);
+      if (!currentUserId) {
+        throw new Error("Login required. Please sign in first.");
+      }
 
       // ✅ Create or Join group
       setStep(mode === "create" ? "group:create" : "group:join");
       let group: { id: string } | null = null;
       if (mode === "create") {
         group = await withTimeout(
-          createGroup(groupName.trim(), authUserId),
+          createGroup(groupName.trim(), currentUserId),
           "Create group",
         );
       } else {
         group = await withTimeout(
-          joinGroup(inviteCode.trim(), authUserId, trimmedName),
+          joinGroup(inviteCode.trim(), currentUserId, trimmedName),
           "Join group",
         );
       }
@@ -173,8 +252,35 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
                   Welcome
                 </div>
                 <p className="mt-2 text-gray-600">
-                  Enter your name and email to continue.
+                  Secure sign in with email and password.
                 </p>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode("signup")}
+                    className={[
+                      "px-4 py-2 rounded-full border text-sm font-semibold",
+                      authMode === "signup"
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "bg-white border-gray-200 text-gray-700",
+                    ].join(" ")}
+                  >
+                    Sign up
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode("login")}
+                    className={[
+                      "px-4 py-2 rounded-full border text-sm font-semibold",
+                      authMode === "login"
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "bg-white border-gray-200 text-gray-700",
+                    ].join(" ")}
+                  >
+                    Login
+                  </button>
+                </div>
 
                 <div className="mt-6 space-y-4">
                   <div>
@@ -210,6 +316,68 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
                       </div>
                     )}
                   </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-gray-900">
+                      Password
+                    </label>
+                    <input
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Minimum 6 characters"
+                      type="password"
+                      className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                    />
+                    {!passwordValid && password.length > 0 && (
+                      <div className="mt-2 text-xs text-red-600">
+                        Password must be at least 6 characters.
+                      </div>
+                    )}
+                  </div>
+
+                  {authMode === "signup" && (
+                    <div>
+                      <label className="text-sm font-semibold text-gray-900">
+                        Confirm password
+                      </label>
+                      <input
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Re-enter password"
+                        type="password"
+                        className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                      />
+                      {confirmPassword.length > 0 &&
+                        confirmPassword !== password && (
+                          <div className="mt-2 text-xs text-red-600">
+                            Passwords do not match.
+                          </div>
+                        )}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-sm font-semibold text-gray-900">
+                      Login PIN (optional)
+                    </label>
+                    <input
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value)}
+                      placeholder={
+                        authMode === "signup"
+                          ? "Set optional 4-8 digit PIN"
+                          : "Enter PIN if your account has one"
+                      }
+                      type="password"
+                      inputMode="numeric"
+                      className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-200"
+                    />
+                    {!pinValid && (
+                      <div className="mt-2 text-xs text-red-600">
+                        PIN must be 4 to 8 digits.
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -219,13 +387,20 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
                     onClick={handleIdentityContinue}
                     className="w-full sm:w-auto"
                   >
-                    Continue
+                    {busy
+                      ? "Working..."
+                      : authMode === "signup"
+                        ? "Create account"
+                        : "Login"}
                   </Button>
                   <Button
                     variant="ghost"
                     onClick={() => {
                       setName("");
                       setEmail("");
+                      setPassword("");
+                      setConfirmPassword("");
+                      setPin("");
                     }}
                     disabled={busy}
                     className="w-full sm:w-auto"
@@ -233,6 +408,12 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
                     Clear
                   </Button>
                 </div>
+
+                {authNotice && (
+                  <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+                    {authNotice}
+                  </div>
+                )}
               </>
             ) : (
               <>

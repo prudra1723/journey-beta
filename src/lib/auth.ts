@@ -7,6 +7,36 @@ export async function signInAnonymously() {
   return data; // { user, session }
 }
 
+export async function signUpWithEmailPassword(
+  email: string,
+  password: string,
+) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const redirectTo =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/`
+      : undefined;
+  const { data, error } = await supabase.auth.signUp({
+    email: normalizedEmail,
+    password,
+    options: {
+      emailRedirectTo: redirectTo,
+    },
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function signInWithEmailPassword(email: string, password: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: normalizedEmail,
+    password,
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function getAuthSession() {
   return supabase.auth.getSession();
 }
@@ -19,13 +49,15 @@ export async function ensureProfile(
   userId: string,
   displayName?: string,
   email?: string,
+  loginPin?: string,
 ) {
   const name = displayName?.trim() || "User";
   const emailValue = email?.trim();
+  const pinValue = loginPin?.trim();
 
   const { data: existing, error: findErr } = await supabase
     .from("profiles")
-    .select("id,display_name")
+    .select("id,display_name,email,login_pin")
     .eq("id", userId)
     .maybeSingle();
   if (findErr) throw findErr;
@@ -35,11 +67,13 @@ export async function ensureProfile(
       display_name: string;
       name_key: string;
       email?: string | null;
+      login_pin?: string | null;
     } = {
       display_name: name,
       name_key: normalizeName(name),
     };
     if (emailValue) updatePayload.email = emailValue;
+    if (pinValue) updatePayload.login_pin = pinValue;
 
     const { data: updated, error: updateErr } = await supabase
       .from("profiles")
@@ -56,12 +90,14 @@ export async function ensureProfile(
     display_name: string;
     name_key: string;
     email?: string | null;
+    login_pin?: string | null;
   } = {
     id: userId,
     display_name: name,
     name_key: normalizeName(name),
   };
   if (emailValue) insertPayload.email = emailValue;
+  if (pinValue) insertPayload.login_pin = pinValue;
 
   const { data: created, error: insertErr } = await supabase
     .from("profiles")
@@ -76,7 +112,7 @@ export async function ensureProfile(
 export async function getProfile(userId: string) {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id,display_name")
+    .select("id,display_name,email,login_pin")
     .eq("id", userId)
     .maybeSingle();
 
