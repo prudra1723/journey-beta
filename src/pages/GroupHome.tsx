@@ -79,6 +79,8 @@ type MarketHighlight = {
   coverImageUrl?: string | null;
 };
 
+type MarketFilter = "all" | "event_booking" | "business_promotion" | "for_sale";
+
 const ABOUT_OPTIONS = [
   { value: "", label: "Select type" },
   { value: "travel", label: "Travel" },
@@ -420,6 +422,7 @@ export function GroupHome({
   const [marketHighlights, setMarketHighlights] = useState<MarketHighlight[]>(
     [],
   );
+  const [marketFilter, setMarketFilter] = useState<MarketFilter>("all");
   const notifMenuRef = useRef<HTMLDivElement | null>(null);
   const notifLatestRef = useRef(0);
   const notifSeenRef = useRef(0);
@@ -518,10 +521,15 @@ export function GroupHome({
   const [orderLoaded, setOrderLoaded] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const orderSyncRef = useRef<string>("");
+  const filteredMarketHighlights = useMemo(() => {
+    if (marketFilter === "all") return marketHighlights;
+    return marketHighlights.filter((item) => item.listingType === marketFilter);
+  }, [marketHighlights, marketFilter]);
+
   const marqueeItems = useMemo(() => {
-    if (marketHighlights.length === 0) return [];
-    return [...marketHighlights, ...marketHighlights];
-  }, [marketHighlights]);
+    if (filteredMarketHighlights.length === 0) return [];
+    return [...filteredMarketHighlights, ...filteredMarketHighlights];
+  }, [filteredMarketHighlights]);
 
   useEffect(() => {
     let mounted = true;
@@ -2140,6 +2148,28 @@ export function GroupHome({
                 Open market
               </Button>
             </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[
+                { key: "all", label: "All" },
+                { key: "event_booking", label: "Event booking" },
+                { key: "business_promotion", label: "Business" },
+                { key: "for_sale", label: "For sale" },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setMarketFilter(f.key as MarketFilter)}
+                  className={[
+                    "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                    marketFilter === f.key
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
+                  ].join(" ")}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
             <div className="mt-3 -mx-1 overflow-x-auto">
               <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white/70">
                 <style>{`
@@ -2207,10 +2237,14 @@ export function GroupHome({
                     className="w-[220px] shrink-0 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-left"
                   >
                     <div className="text-sm font-extrabold text-gray-900">
-                      Open Marketplace
+                      {marketFilter === "all"
+                        ? "Open Marketplace"
+                        : "No matches for filter"}
                     </div>
                     <div className="mt-1 text-xs text-gray-600">
-                      No listings yet. Tap to add your first listing.
+                      {marketFilter === "all"
+                        ? "No listings yet. Tap to add your first listing."
+                        : "Try another filter or open marketplace."}
                     </div>
                   </button>
                 )}
