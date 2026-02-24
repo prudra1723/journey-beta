@@ -72,7 +72,7 @@ export async function ensureProfile(
 
   const { data: existing, error: findErr } = await supabase
     .from("profiles")
-    .select("id,display_name,email,login_pin")
+    .select("id,display_name,email,login_pin,profile_visibility")
     .eq("id", userId)
     .maybeSingle();
   if (findErr) throw findErr;
@@ -94,7 +94,7 @@ export async function ensureProfile(
       .from("profiles")
       .update(updatePayload)
       .eq("id", userId)
-      .select("id,display_name,email")
+      .select("id,display_name,email,profile_visibility")
       .single();
     if (updateErr) throw updateErr;
     return updated;
@@ -117,7 +117,7 @@ export async function ensureProfile(
   const { data: created, error: insertErr } = await supabase
     .from("profiles")
     .insert(insertPayload)
-    .select("id,display_name,email")
+    .select("id,display_name,email,profile_visibility")
     .single();
 
   if (insertErr) throw insertErr;
@@ -127,7 +127,7 @@ export async function ensureProfile(
 export async function getProfile(userId: string) {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id,display_name,email,login_pin")
+    .select("id,display_name,email,login_pin,profile_visibility")
     .eq("id", userId)
     .maybeSingle();
 

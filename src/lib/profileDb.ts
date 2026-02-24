@@ -57,6 +57,8 @@ export type Profile = {
   coverDataUrl?: string; // can be signed URL or dataUrl
   displayName?: string;
   email?: string;
+  loginPin?: string;
+  profileVisibility?: "owner" | "group" | "public";
   bio?: string;
   location?: string;
   updatedAt: number;
@@ -126,7 +128,9 @@ export async function fetchProfileRemote(userId: string): Promise<Profile> {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("display_name, email, avatar_url, cover_url, bio, location")
+    .select(
+      "display_name, email, login_pin, profile_visibility, avatar_url, cover_url, bio, location",
+    )
     .eq("id", userId)
     .maybeSingle();
 
@@ -138,6 +142,8 @@ export async function fetchProfileRemote(userId: string): Promise<Profile> {
   const next: Profile = {
     displayName: (data as any)?.display_name ?? undefined,
     email: (data as any)?.email ?? undefined,
+    loginPin: (data as any)?.login_pin ?? undefined,
+    profileVisibility: (data as any)?.profile_visibility ?? "group",
     avatarDataUrl: avatarUrl ?? undefined,
     coverDataUrl: coverUrl ?? undefined,
     bio: (data as any)?.bio ?? undefined,
@@ -156,6 +162,8 @@ export async function saveProfileRemote(
   const payload: {
     display_name?: string | null;
     email?: string | null;
+    login_pin?: string | null;
+    profile_visibility?: "owner" | "group" | "public" | null;
     avatar_url?: string | null;
     cover_url?: string | null;
     bio?: string | null;
@@ -164,6 +172,9 @@ export async function saveProfileRemote(
 
   if ("displayName" in patch) payload.display_name = patch.displayName ?? null;
   if ("email" in patch) payload.email = patch.email ?? null;
+  if ("loginPin" in patch) payload.login_pin = patch.loginPin ?? null;
+  if ("profileVisibility" in patch)
+    payload.profile_visibility = patch.profileVisibility ?? "group";
 
   // DB stores STORAGE PATHS, not signed urls
   if ("avatarDataUrl" in patch)

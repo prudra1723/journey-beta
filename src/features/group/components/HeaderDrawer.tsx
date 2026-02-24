@@ -5,9 +5,11 @@ import { Button } from "../../../components/ui/Button";
 import {
   addGroupMember,
   createGroup,
+  type DirectoryProfile,
   getGroupMembers,
   getGroupMeta,
   removeGroupMember,
+  searchDirectoryProfiles,
   updateGroupCode,
   updateGroupMeta,
 } from "../../../lib/appDb";
@@ -36,7 +38,7 @@ import {
 import defaultHeaderImage from "../../../assets/header1.jpg";
 import { UserAvatar } from "../../../components/UserAvatar";
 
-type Tab = "group" | "profile" | "settings";
+type Tab = "group" | "profile" | "directory" | "settings";
 type GroupTypeChoice =
   | "tour"
   | "birthday"
@@ -92,6 +94,11 @@ export function HeaderDrawer({
   const [headerImage, setHeaderImage] = useState<string | null>(() =>
     readGroupHeaderImage(groupId),
   );
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarPreview, setPendingAvatarPreview] = useState<string | null>(
+    null,
+  );
+  const [avatarSaving, setAvatarSaving] = useState(false);
 
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<GroupMeta["groupType"]>("tour");
@@ -119,6 +126,10 @@ export function HeaderDrawer({
   >("member");
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const [memberBusy, setMemberBusy] = useState(false);
+  const [directoryQuery, setDirectoryQuery] = useState("");
+  const [directoryItems, setDirectoryItems] = useState<DirectoryProfile[]>([]);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [privacyAck, setPrivacyAck] = useState(false);
   const [termsAck, setTermsAck] = useState(false);
 
@@ -142,6 +153,8 @@ export function HeaderDrawer({
     setAvatar(meUserId ? readProfileAvatar(meUserId) ?? null : null);
     setCover(meUserId ? readProfileCover(meUserId) ?? null : null);
     setProfile(meUserId ? readProfile(meUserId) : { updatedAt: 0 });
+    setPendingAvatarFile(null);
+    setPendingAvatarPreview(null);
     setHeaderImage(readGroupHeaderImage(groupId));
 
     (async () => {
@@ -172,6 +185,14 @@ export function HeaderDrawer({
       mounted = false;
     };
   }, [open, groupId, meUserId]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingAvatarPreview?.startsWith("blob:")) {
+        URL.revokeObjectURL(pendingAvatarPreview);
+      }
+    };
+  }, [pendingAvatarPreview]);
 
   useEffect(() => {
     if (!open) return;
@@ -214,6 +235,7 @@ export function HeaderDrawer({
   const title = useMemo(() => {
     if (tab === "group") return "Group info";
     if (tab === "profile") return "Profile";
+    if (tab === "directory") return "Profile directory";
     return "Settings";
   }, [tab]);
 
@@ -333,6 +355,63 @@ export function HeaderDrawer({
     }
   }
 
+  useEffect(() => {
+    if (!open || tab !== "directory" || !meUserId) return;
+    let mounted = true;
+    const run = async () => {
+      setDirectoryLoading(true);
+      setDirectoryError(null);
+      try {
+        const list = await searchDirectoryProfiles(groupId, meUserId, directoryQuery);
+        if (!mounted) return;
+        setDirectoryItems(list);
+      } catch (err) {
+        const msg =
+          (err as { message?: string })?.message ??
+          "Could not load profiles.";
+        if (mounted) setDirectoryError(msg);
+      } finally {
+        if (mounted) setDirectoryLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, [open, tab, groupId, meUserId, directoryQuery]);
+
+  async function saveAvatarUpload() {
+    if (!me || !pendingAvatarFile) return;
+    setAvatarSaving(true);
+    try {
+      const path = await uploadProfileAvatar(me.userId, pendingAvatarFile);
+      await saveProfileRemote(me.userId, {
+        avatarDataUrl: path,
+        displayName: profile.displayName ?? me.name,
+      });
+      const signed = await getSignedStorageUrl(path);
+      saveProfileAvatar(me.userId, signed, me.name);
+      setAvatar(signed);
+      setProfile((p) => ({
+        ...p,
+        displayName: p.displayName ?? me.name,
+      }));
+      if (pendingAvatarPreview?.startsWith("blob:")) {
+        URL.revokeObjectURL(pendingAvatarPreview);
+      }
+      setPendingAvatarFile(null);
+      setPendingAvatarPreview(null);
+    } catch (err) {
+      const msg =
+        (err as { message?: string })?.message ??
+        "Could not upload image. Try a smaller file.";
+      alert(msg);
+    } finally {
+      setAvatarSaving(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
   if (!open) return null;
 
   return (
@@ -378,7 +457,7 @@ export function HeaderDrawer({
 
             {/* Tabs */}
             <div className="px-5 py-3 border-b border-gray-200 bg-white flex gap-2 flex-wrap">
-              {(["group", "profile", "settings"] as Tab[]).map((k) => (
+              {(["group", "profile", "directory", "settings"] as Tab[]).map((k) => (
                 <button
                   key={k}
                   type="button"
@@ -394,6 +473,8 @@ export function HeaderDrawer({
                     ? "🎉 Group"
                     : k === "profile"
                       ? "👤 Profile"
+                      : k === "directory"
+                        ? "🔎 Profiles"
                       : "⚙️ Settings"}
                 </button>
               ))}
@@ -764,9 +845,9 @@ export function HeaderDrawer({
                     <div className="px-4 pb-5">
                       <div className="-mt-10 flex items-end gap-3">
                         <div className="w-20 h-20 rounded-3xl border-4 border-white bg-gray-50 overflow-hidden flex items-center justify-center shadow-md">
-                          {avatar ? (
+                          {(pendingAvatarPreview ?? avatar) ? (
                             <img
-                              src={avatar}
+                              src={pendingAvatarPreview ?? avatar ?? ""}
                               alt="avatar"
                               className="w-full h-full object-cover"
                             />
@@ -788,44 +869,50 @@ export function HeaderDrawer({
                             type="file"
                             accept="image/*"
                             className="hidden"
-                          onChange={async (e) => {
-                            if (!me) return;
-                            const f = e.target.files?.[0];
-                            if (!f) return;
-                            try {
-                              const path = await uploadProfileAvatar(
-                                me.userId,
-                                f,
-                              );
-                              await saveProfileRemote(me.userId, {
-                                avatarDataUrl: path,
-                                displayName: profile.displayName ?? me.name,
-                              });
-                              const signed = await getSignedStorageUrl(path);
-                              saveProfileAvatar(me.userId, signed, me.name);
-                              setAvatar(signed);
-                              setProfile((p) => ({
-                                ...p,
-                                displayName: p.displayName ?? me.name,
-                              }));
-                            } catch (err) {
-                              const msg =
-                                (err as { message?: string })?.message ??
-                                "Could not upload image. Try a smaller file.";
-                              alert(msg);
-                            } finally {
-                              if (fileRef.current)
-                                  fileRef.current.value = "";
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (!f) return;
+                              if (pendingAvatarPreview?.startsWith("blob:")) {
+                                URL.revokeObjectURL(pendingAvatarPreview);
                               }
+                              setPendingAvatarFile(f);
+                              setPendingAvatarPreview(URL.createObjectURL(f));
                             }}
                           />
-                          <Button
-                            variant="primary"
-                            onClick={() => fileRef.current?.click()}
-                            disabled={!me}
-                          >
-                            Change photo
-                          </Button>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <Button
+                              variant="primary"
+                              onClick={() => fileRef.current?.click()}
+                              disabled={!me}
+                            >
+                              Change photo
+                            </Button>
+                            {pendingAvatarFile && (
+                              <>
+                                <Button
+                                  variant="primary"
+                                  onClick={saveAvatarUpload}
+                                  disabled={!me || avatarSaving}
+                                >
+                                  {avatarSaving ? "Saving…" : "Save photo"}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => {
+                                    if (pendingAvatarPreview?.startsWith("blob:")) {
+                                      URL.revokeObjectURL(pendingAvatarPreview);
+                                    }
+                                    setPendingAvatarFile(null);
+                                    setPendingAvatarPreview(null);
+                                    if (fileRef.current) fileRef.current.value = "";
+                                  }}
+                                  disabled={avatarSaving}
+                                >
+                                  Cancel
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -899,6 +986,63 @@ export function HeaderDrawer({
                               });
                             }}
                           />
+                        </div>
+                        <div>
+                          <div className="text-xs font-extrabold text-gray-700">
+                            Profile visibility
+                          </div>
+                          <select
+                            value={profile.profileVisibility ?? "group"}
+                            className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                            onChange={(e) => {
+                              if (!me) return;
+                              const next = e.target.value as
+                                | "owner"
+                                | "group"
+                                | "public";
+                              setProfile((p) => ({
+                                ...p,
+                                profileVisibility: next,
+                              }));
+                              saveProfile(me.userId, { profileVisibility: next });
+                              void saveProfileRemote(me.userId, {
+                                profileVisibility: next,
+                              });
+                            }}
+                          >
+                            <option value="owner">Only me</option>
+                            <option value="group">Group members</option>
+                            <option value="public">Public (signed-in users)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <div className="text-xs font-extrabold text-gray-700">
+                            Login PIN (optional)
+                          </div>
+                          <input
+                            defaultValue={profile.loginPin ?? ""}
+                            placeholder="Set 4-8 digits"
+                            type="password"
+                            inputMode="numeric"
+                            className="mt-1 w-full rounded-2xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                            onBlur={(e) => {
+                              if (!me) return;
+                              const next = e.target.value.trim();
+                              if (next && !/^\d{4,8}$/.test(next)) {
+                                alert("PIN must be 4 to 8 digits.");
+                                e.target.value = profile.loginPin ?? "";
+                                return;
+                              }
+                              setProfile((p) => ({ ...p, loginPin: next }));
+                              saveProfile(me.userId, { loginPin: next });
+                              void saveProfileRemote(me.userId, {
+                                loginPin: next,
+                              });
+                            }}
+                          />
+                          <div className="mt-1 text-[11px] text-gray-500">
+                            Required only if you set one for your account.
+                          </div>
                         </div>
                       </div>
                     </Card>
@@ -1057,6 +1201,84 @@ export function HeaderDrawer({
                       </div>
                     )}
                   </Card>
+                </div>
+              )}
+
+              {tab === "directory" && (
+                <div className="space-y-3">
+                  <Card>
+                    <div className="text-sm font-extrabold text-gray-900">
+                      Search profiles
+                    </div>
+                    <div className="mt-2 text-xs text-gray-600">
+                      Visibility respects each user setting: only me, group, or
+                      public.
+                    </div>
+                    <input
+                      value={directoryQuery}
+                      onChange={(e) => setDirectoryQuery(e.target.value)}
+                      placeholder="Search by name, location, bio"
+                      className="mt-3 w-full rounded-2xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                    />
+                  </Card>
+
+                  {directoryLoading && (
+                    <Card>
+                      <div className="text-sm text-gray-600">
+                        Loading profiles…
+                      </div>
+                    </Card>
+                  )}
+
+                  {directoryError && (
+                    <Card>
+                      <div className="text-sm text-red-600">{directoryError}</div>
+                    </Card>
+                  )}
+
+                  {!directoryLoading && !directoryError && directoryItems.length === 0 && (
+                    <Card>
+                      <div className="text-sm text-gray-600">
+                        No profiles found for this filter.
+                      </div>
+                    </Card>
+                  )}
+
+                  {!directoryLoading &&
+                    !directoryError &&
+                    directoryItems.map((item) => (
+                      <Card key={item.userId}>
+                        <div className="flex items-start gap-3">
+                          <UserAvatar
+                            userId={item.userId}
+                            name={item.name}
+                            size={38}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-extrabold text-gray-900 truncate">
+                              {item.name}
+                            </div>
+                            <div className="mt-1 text-[11px] text-gray-500">
+                              {item.visibility === "owner"
+                                ? "Private: Only me"
+                                : item.visibility === "group"
+                                  ? "Visible to group members"
+                                  : "Public profile"}
+                            </div>
+                            {item.location && (
+                              <div className="mt-1 text-xs text-gray-600 truncate">
+                                {item.location}
+                              </div>
+                            )}
+                            {item.bio && (
+                              <div className="mt-1 text-xs text-gray-600 line-clamp-2">
+                                {item.bio}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
                 </div>
               )}
 

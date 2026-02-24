@@ -500,8 +500,6 @@ export function Start({ onDone }: { onDone: (groupId?: string) => void }) {
                   <div className="text-sm font-semibold text-gray-700">
                     Signed in as{" "}
                     <span className="text-gray-900">{name.trim() || "-"}</span>
-                    <span className="text-gray-400"> • </span>
-                    <span className="text-gray-600">{emailKey || "-"}</span>
                   </div>
                   <Button
                     variant="ghost"

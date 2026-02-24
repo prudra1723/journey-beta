@@ -155,6 +155,15 @@ export type GroupMember = {
   name: string;
 };
 
+export type DirectoryProfile = {
+  userId: string;
+  name: string;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  visibility: "owner" | "group" | "public";
+};
+
 export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
   const client = assertSupabase();
   const { data, error } = await client
@@ -172,6 +181,73 @@ export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
     role: (row.role as "host" | "admin" | "member") ?? "member",
     name: nameMap.get(row.user_id) ?? "Unknown",
   }));
+}
+
+export async function searchDirectoryProfiles(
+  groupId: string,
+  viewerUserId: string,
+  query = "",
+): Promise<DirectoryProfile[]> {
+  const client = assertSupabase();
+  const normalized = query.trim().toLowerCase();
+
+  const { data: memberRows, error: membersErr } = await client
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", groupId);
+  if (membersErr) throw membersErr;
+
+  const memberIds = (memberRows ?? []).map((r: any) => r.user_id as string);
+  if (memberIds.length === 0) return [];
+
+  const { data: membership, error: membershipErr } = await client
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", groupId)
+    .eq("user_id", viewerUserId)
+    .maybeSingle();
+  if (membershipErr) throw membershipErr;
+  const viewerIsMember = Boolean(membership?.user_id);
+
+  const { data: profiles, error: profilesErr } = await client
+    .from("profiles")
+    .select("id,display_name,avatar_url,bio,location,profile_visibility")
+    .in("id", memberIds);
+  if (profilesErr) throw profilesErr;
+
+  const rows = (profiles ?? []) as Array<{
+    id: string;
+    display_name: string | null;
+    avatar_url: string | null;
+    bio: string | null;
+    location: string | null;
+    profile_visibility: "owner" | "group" | "public" | null;
+  }>;
+
+  return rows
+    .map((row) => ({
+      userId: row.id,
+      name: row.display_name ?? "Unknown",
+      avatarUrl: row.avatar_url,
+      bio: row.bio,
+      location: row.location,
+      visibility: (row.profile_visibility ?? "group") as
+        | "owner"
+        | "group"
+        | "public",
+    }))
+    .filter((row) => {
+      if (row.userId === viewerUserId) return true;
+      if (row.visibility === "public") return true;
+      if (row.visibility === "group") return viewerIsMember;
+      return false;
+    })
+    .filter((row) => {
+      if (!normalized) return true;
+      const hay = `${row.name} ${row.location ?? ""} ${row.bio ?? ""}`.toLowerCase();
+      return hay.includes(normalized);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function addGroupMember(

@@ -6,6 +6,7 @@ create table if not exists profiles (
   display_name text,
   email text,
   login_pin text,
+  profile_visibility text default 'group',
   avatar_url text,
   cover_url text,
   bio text,
@@ -18,6 +19,8 @@ alter table profiles
   add column if not exists email text;
 alter table profiles
   add column if not exists login_pin text;
+alter table profiles
+  add column if not exists profile_visibility text default 'group';
 
 alter table profiles
   drop constraint if exists profiles_name_key_key;
